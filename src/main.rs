@@ -2,6 +2,7 @@ mod srs;
 mod nlp;
 
 use std::time::Duration;
+use std::iter;
 use srs::*;
 
 fn inspect(memo: &Memo) {
@@ -34,13 +35,10 @@ async fn main() -> anyhow::Result<()> {
     inspect(&memo);
 
     let nlp_engine = nlp::Engine::init().await;
-    let morphology = nlp_engine.analyze("太郎は花子が読んでいる本を次郎に渡します").await?;
+    let morphology = nlp_engine.analyze("国境の長いトンネルを抜けると雪国であった。").await?;
 
     for (i, token) in morphology.units.iter().enumerate() {
-        let entry = jmdict::entries().find(|e| {
-            e.kanji_elements().any(|k| k.text == token.unit)
-        });
-        
+        let candidate = token.lookup();
         println!(
             "{}: {:?}, {}",
             token.unit,
@@ -50,12 +48,7 @@ async fn main() -> anyhow::Result<()> {
                 dep_i => format!("depends on {}", morphology.units[dep_i-1].unit),
             },
         );
-        
-        // match entry {
-        //     // doesnt properly find words yet, because you need to do lemmatization
-        //     Some(found) => println!("Found entry in JMDict: {}", found.reading_elements().next().unwrap().text),
-        //     None => println!("No match found in JMDict"),
-        // }
+        println!("- best JMdict match: {:?}", candidate.map(|v| v.1));
     }
     Ok(())
 }
