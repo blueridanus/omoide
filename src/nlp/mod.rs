@@ -230,7 +230,7 @@ impl Engine {
         Self { _handle, tx, }
     }
 
-    pub async fn analyze(&self, input: impl Into<String>) -> anyhow::Result<Morphology> {
+    pub async fn morphological_analysis(&self, input: impl Into<String>) -> anyhow::Result<Morphology> {
         let (tx, rx) = oneshot::channel();
         self.tx.send((input.into(), tx))?;
         let morphology = rx.await?;

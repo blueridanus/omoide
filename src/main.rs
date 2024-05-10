@@ -35,20 +35,38 @@ async fn main() -> anyhow::Result<()> {
     inspect(&memo);
 
     let nlp_engine = nlp::Engine::init().await;
-    let morphology = nlp_engine.analyze("国境の長いトンネルを抜けると雪国であった。").await?;
+    let morphology = nlp_engine.morphological_analysis("国境の長いトンネルを抜けると雪国であった。").await?;
 
     for (i, token) in morphology.units.iter().enumerate() {
         let candidate = token.lookup();
         println!(
-            "{}: {:?}, {}",
+            "{}: {:?}{}",
             token.unit,
             token.class,
             match morphology.deps[i] {
-                0 => "root".into(),
-                dep_i => format!("depends on {}", morphology.units[dep_i-1].unit),
+                0 => ", root".into(),
+                dep_i if !token.class.is_other() => format!(", depends on {}", morphology.units[dep_i-1].unit),
+                _ => "".into(),
             },
         );
-        println!("- best JMdict match: {:?}", candidate.map(|v| v.1));
+        if let Some(candidate) = candidate {
+            println!("  best JMdict match: {:?}", candidate.1);
+
+            for (i, gloss) in candidate.0.senses()
+                .map(|sense| sense
+                    .glosses()
+                    .filter(|gloss| match gloss.gloss_type {
+                        jmdict::GlossType::LiteralTranslation | 
+                        jmdict::GlossType::RegularTranslation => true,
+                        _ => false,
+                    })
+                )
+                .flatten()
+                .enumerate()
+            {
+                println!("  {}. {}", i+1, gloss.text);
+            }
+        }
     }
     Ok(())
 }
