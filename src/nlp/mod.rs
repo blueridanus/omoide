@@ -117,6 +117,7 @@ pub struct WordUnit {
 }
 
 impl WordUnit {
+    // TODO: implement lemmatization by undoing inflection
     pub fn lemmatize(&self) -> String {
         match self.class {
             PartOfSpeech::Verb => todo!(),
@@ -128,15 +129,22 @@ impl WordUnit {
     /// Attemps to find this word in the dictionary.
     /// If found, returns the jmdict entry and the matched dictionary form.
     pub fn lookup(&self) -> Option<(jmdict::Entry, &str)> {
-        // Don't bother looking up a dictionary entry for punctuation, symbols, etc.
-        if self.class.is_other() {
-            return None;
+        match self.class {
+            // TODO: rely on lemmatization instead of longest common prefix
+            PartOfSpeech::Verb | PartOfSpeech::Adjective => self.lookup_partial(),
+            // Don't bother looking up a dictionary entry for punctuation, symbols, etc.
+            _ if self.class.is_other() => None,
+            // Exact lookup for words which won't be found inflected.
+            _ => self.lookup_exact(),
         }
+    }
 
+    /// Least common prefix based dictionary lookup.
+    fn lookup_partial(&self) -> Option<(jmdict::Entry, &str)> {
         let mut candidate: Option<(jmdict::Entry, &str)> = None;
         let mut lcp_len = 0usize;
         let readings = jmdict::entries()
-            // TODO: maybe in some cases its still worth returning a match even if
+            // maybe in some cases its still worth returning a match even if
             // can_be_candidate_for is false?
             .filter(|entry| entry.senses().any(|sense| sense.can_be_candidate_for(self.class)))
             .map(|entry| entry
@@ -148,8 +156,6 @@ impl WordUnit {
             .flatten();
 
         for (entry, reading) in readings {
-            // TODO: rely on lemmatization instead of longest common prefix?
-            // or should lemmatization rely on the dictionary lookup? shrug
             for (i, (a,b)) in iter::zip(reading.chars(), self.unit.chars()).enumerate() {
                 if a != b {
                     break;
@@ -168,6 +174,21 @@ impl WordUnit {
         }
 
         candidate
+    }
+
+    // TODO: index the dictionary for random access
+    // TODO: DRY?
+    fn lookup_exact(&self) -> Option<(jmdict::Entry, &str)> {
+        jmdict::entries()
+            .filter(|entry| entry.senses().any(|sense| sense.can_be_candidate_for(self.class)))
+            .map(|entry| entry
+                .kanji_elements()
+                .map(|r| r.text)
+                .chain(entry.reading_elements().map(|r| r.text))
+                .map(move |reading| (entry, reading))
+            )
+            .flatten()
+            .find(|(_, reading)| *reading == &self.unit)
     }
 }
 

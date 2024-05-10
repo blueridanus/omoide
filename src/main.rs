@@ -66,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
             {
                 println!("  {}. {}", i+1, gloss.text);
             }
+            println!()
         }
     }
     Ok(())
