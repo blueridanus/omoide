@@ -1,9 +1,8 @@
-mod srs;
-mod nlp;
-
 use std::time::Duration;
-use std::iter;
-use srs::*;
+use omoide::{
+    nlp::{self, WordRole},
+    srs::{Memo, Rating,},
+};
 
 fn inspect(memo: &Memo) {
     let secs = memo.next_review(0.9).as_secs();
@@ -35,18 +34,21 @@ async fn main() -> anyhow::Result<()> {
     inspect(&memo);
 
     let nlp_engine = nlp::Engine::init().await;
-    let morphology = nlp_engine.morphological_analysis("国境の長いトンネルを抜けると雪国であった。").await?;
+    let analysis = nlp_engine.morphological_analysis("赤くないボールを取ってください。").await?;
+    let morphology = nlp::Morphology::from_analysis(analysis);
 
-    for (i, token) in morphology.units.iter().enumerate() {
-        let candidate = token.lookup();
+    for (i, word) in morphology.words().enumerate() {
+        let candidate = word.lookup();
         println!(
             "{}: {:?}{}",
-            token.unit,
-            token.class,
-            match morphology.deps[i] {
-                0 => ", root".into(),
-                dep_i if !token.class.is_other() => format!(", depends on {}", morphology.units[dep_i-1].unit),
-                _ => "".into(),
+            word,
+            word.role, //正直言って私はクラシック音楽が好きじゃない。かたや、モリーの方が完全にはまっている。
+            match morphology.dependency(i) {
+                None => ", root".into(),
+                Some(dep_i) => match word.role {
+                    WordRole::Other => "".into(),
+                    _ => format!(", depends on {}", morphology.word(dep_i)),
+                }
             },
         );
         if let Some(candidate) = candidate {
