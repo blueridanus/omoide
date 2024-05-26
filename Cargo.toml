@@ -9,4 +9,5 @@ edition = "2021"
 anyhow = "1"
 jmdict = "2"
 pyo3 = { version = "0.21", features = ["auto-initialize"] }
+srtlib = "0.1.8"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
