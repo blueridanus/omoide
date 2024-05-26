@@ -1,8 +1,8 @@
-use std::time::Duration;
 use omoide::{
     nlp::{self, WordRole},
-    srs::{Memo, Rating,},
+    srs::{Memo, Rating},
 };
+use std::time::Duration;
 
 fn inspect(memo: &Memo) {
     let secs = memo.next_review(0.9).as_secs();
@@ -34,7 +34,9 @@ async fn main() -> anyhow::Result<()> {
     inspect(&memo);
 
     let nlp_engine = nlp::Engine::init().await;
-    let analysis = nlp_engine.morphological_analysis("赤くないボールを取ってください。").await?;
+    let analysis = nlp_engine
+        .morphological_analysis("赤くないボールを取ってください。")
+        .await?;
     let morphology = nlp::Morphology::from_analysis(analysis);
 
     for (i, word) in morphology.words().enumerate() {
@@ -48,25 +50,26 @@ async fn main() -> anyhow::Result<()> {
                 Some(dep_i) => match word.role {
                     WordRole::Other => "".into(),
                     _ => format!(", depends on {}", morphology.word(dep_i)),
-                }
+                },
             },
         );
         if let Some(candidate) = candidate {
             println!("  best JMdict match: {:?}", candidate.1);
 
-            for (i, gloss) in candidate.0.senses()
-                .map(|sense| sense
-                    .glosses()
-                    .filter(|gloss| match gloss.gloss_type {
-                        jmdict::GlossType::LiteralTranslation | 
-                        jmdict::GlossType::RegularTranslation => true,
+            for (i, gloss) in candidate
+                .0
+                .senses()
+                .map(|sense| {
+                    sense.glosses().filter(|gloss| match gloss.gloss_type {
+                        jmdict::GlossType::LiteralTranslation
+                        | jmdict::GlossType::RegularTranslation => true,
                         _ => false,
                     })
-                )
+                })
                 .flatten()
                 .enumerate()
             {
-                println!("  {}. {}", i+1, gloss.text);
+                println!("  {}. {}", i + 1, gloss.text);
             }
             println!()
         }

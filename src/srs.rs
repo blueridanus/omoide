@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-const FSRS_CONSTANTS: [f32; 17] = [0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01, 1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29, 2.61];
+const FSRS_CONSTANTS: [f32; 17] = [
+    0.4, 0.6, 2.4, 5.8, 4.93, 0.94, 0.86, 0.01, 1.49, 0.14, 0.94, 2.18, 0.05, 0.34, 1.26, 0.29,
+    2.61,
+];
 // seconds in a day
 const DAY_SECS: f32 = 86400.0;
 
@@ -47,7 +50,9 @@ impl Memo {
     }
 
     pub fn next_review(&self, desired_retention: f32) -> Duration {
-        Duration::from_secs_f32(4.26316 * self.stability * (desired_retention.powf(-2.0) - 1.0) * DAY_SECS)
+        Duration::from_secs_f32(
+            4.26316 * self.stability * (desired_retention.powf(-2.0) - 1.0) * DAY_SECS,
+        )
     }
 
     pub fn review(&mut self, rating: Rating, elapsed: Duration) {
@@ -62,7 +67,8 @@ impl Memo {
             let mut new_stability = FSRS_CONSTANTS[8].exp();
             new_stability *= 11.0 - self.difficulty;
             new_stability *= self.stability.powf(-FSRS_CONSTANTS[9]);
-            new_stability *= (FSRS_CONSTANTS[10] * (1.0 - self.retrievability(elapsed))).exp() - 1.0;
+            new_stability *=
+                (FSRS_CONSTANTS[10] * (1.0 - self.retrievability(elapsed))).exp() - 1.0;
             new_stability *= match rating {
                 Rating::Hard => FSRS_CONSTANTS[15],
                 Rating::Easy => FSRS_CONSTANTS[16],
@@ -85,6 +91,6 @@ fn calc_difficulty(rating: Rating, prev: Option<f32>) -> f32 {
             difficulty *= 1.0 - FSRS_CONSTANTS[7];
             difficulty += FSRS_CONSTANTS[7] * calc_difficulty(Rating::Good, None);
             difficulty
-        },
+        }
     }
 }

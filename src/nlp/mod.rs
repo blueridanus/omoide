@@ -1,8 +1,8 @@
 use pyo3::conversion::FromPyObject;
 use pyo3::prelude::*;
-use tokio::task;
-use tokio::sync::{mpsc, oneshot};
 use std::iter;
+use tokio::sync::{mpsc, oneshot};
+use tokio::task;
 
 // TODO: parameterize by categories. tense, politeness, polarity blah blah
 #[derive(Debug, Clone, Copy)]
@@ -29,13 +29,13 @@ impl WordRole {
             match unit.lookup_exact() {
                 // heuristic: if this word can be a particle, it's a particle
                 // TODO: disambiguation between semes by AGI?
-                Some((entry, _,)) => match entry.senses()
-                    .any(|s| s.parts_of_speech()
+                Some((entry, _)) => match entry.senses().any(|s| {
+                    s.parts_of_speech()
                         .any(|pos| matches!(pos, jmdict::PartOfSpeech::Particle))
-                    ) {
-                        true => WordRole::Particle,
-                        false => WordRole::Conjunction,
-                    },
+                }) {
+                    true => WordRole::Particle,
+                    false => WordRole::Conjunction,
+                },
                 None => WordRole::Conjunction,
             }
         }
@@ -77,7 +77,7 @@ impl std::fmt::Display for Word {
 }
 
 impl Word {
-    pub fn lookup(&self) -> Option<(jmdict::Entry, &str,)> {
+    pub fn lookup(&self) -> Option<(jmdict::Entry, &str)> {
         self.upos_subunits[0].lookup()
     }
 }
@@ -102,23 +102,23 @@ impl Morphology {
         let mut merged: Vec<MergedUnit> = vec![];
         let mut association: Vec<usize> = vec![];
 
-        for (_unit, _dep,) in iter::zip(analysis.units, analysis.deps) {
+        for (_unit, _dep) in iter::zip(analysis.units, analysis.deps) {
             let i = merged.len().saturating_sub(1);
             if let Some(last) = merged.last_mut() {
                 match _unit.class {
                     UposTag::Auxiliary | UposTag::SubordinatingConjunction => {
                         match last.subunits[0].class {
                             UposTag::Verb if _dep > 0 => {
-                                if association[_dep-1] == i {
+                                if association[_dep - 1] == i {
                                     last.subunits.push(_unit);
                                     continue;
                                 }
-                            },
+                            }
                             UposTag::Adjective if _dep > 0 => (), // TODO
                             _ => (),
                         };
                         // TODO: handling of aru verb, which gets treated as an AUX
-                    },
+                    }
                     _ => (),
                 }
             }
@@ -127,21 +127,32 @@ impl Morphology {
                 subunits: vec![_unit],
                 dep_index: match _dep {
                     0 => None,
-                    i => Some(i-1),
+                    i => Some(i - 1),
                 },
             });
-            association.push(merged.len()-1);
+            association.push(merged.len() - 1);
         }
 
         Self {
-            units: merged.into_iter().map(|MergedUnit {role, subunits, dep_index}| (
-                Word {
-                    role,
-                    text: subunits.iter().map(|u| u.unit.as_str()).collect(),
-                    upos_subunits: subunits.into_iter().collect(),
-                },
-                dep_index,
-            )).collect()
+            units: merged
+                .into_iter()
+                .map(
+                    |MergedUnit {
+                         role,
+                         subunits,
+                         dep_index,
+                     }| {
+                        (
+                            Word {
+                                role,
+                                text: subunits.iter().map(|u| u.unit.as_str()).collect(),
+                                upos_subunits: subunits.into_iter().collect(),
+                            },
+                            dep_index,
+                        )
+                    },
+                )
+                .collect(),
         }
     }
 
@@ -152,7 +163,7 @@ impl Morphology {
     pub fn get_word(&self, index: usize) -> Option<&Word> {
         self.units.get(index).map(|v| &v.0)
     }
-    
+
     pub fn words(&self) -> impl Iterator<Item = &Word> {
         self.units.iter().map(|v| &v.0)
     }
@@ -160,7 +171,7 @@ impl Morphology {
     pub fn dependency(&self, index: usize) -> Dependency {
         self.units[index].1
     }
-    
+
     pub fn get_dependency(&self, index: usize) -> Option<Dependency> {
         self.units.get(index).map(|v| v.1)
     }
@@ -311,29 +322,34 @@ impl WordUnit {
         let readings = jmdict::entries()
             // maybe in some cases its still worth returning a match even if
             // can_be_candidate_for is false?
-            .filter(|entry| entry.senses().any(|sense| sense.can_be_candidate_for(self.class)))
-            .map(|entry| entry
-                .kanji_elements()
-                .map(|r| r.text)
-                .chain(entry.reading_elements().map(|r| r.text))
-                .map(move |reading| (entry, reading))
-            )
+            .filter(|entry| {
+                entry
+                    .senses()
+                    .any(|sense| sense.can_be_candidate_for(self.class))
+            })
+            .map(|entry| {
+                entry
+                    .kanji_elements()
+                    .map(|r| r.text)
+                    .chain(entry.reading_elements().map(|r| r.text))
+                    .map(move |reading| (entry, reading))
+            })
             .flatten();
 
         for (entry, reading) in readings {
-            for (i, (a,b)) in iter::zip(reading.chars(), self.unit.chars()).enumerate() {
+            for (i, (a, b)) in iter::zip(reading.chars(), self.unit.chars()).enumerate() {
                 if a != b {
                     break;
                 }
-                if i+1 == lcp_len && lcp_len > 0 {
-                    if let Some((entry, c,)) = candidate {
+                if i + 1 == lcp_len && lcp_len > 0 {
+                    if let Some((entry, c)) = candidate {
                         if reading.len() < c.len() {
-                            candidate = Some((entry, reading,));
+                            candidate = Some((entry, reading));
                         }
                     }
-                } else if i+1 > lcp_len {
-                    lcp_len = i+1;
-                    candidate = Some((entry, reading,));
+                } else if i + 1 > lcp_len {
+                    lcp_len = i + 1;
+                    candidate = Some((entry, reading));
                 }
             }
         }
@@ -345,13 +361,18 @@ impl WordUnit {
     // TODO: DRY?
     fn lookup_exact(&self) -> Option<(jmdict::Entry, &str)> {
         jmdict::entries()
-            .filter(|entry| entry.senses().any(|sense| sense.can_be_candidate_for(self.class)))
-            .map(|entry| entry
-                .kanji_elements()
-                .map(|r| r.text)
-                .chain(entry.reading_elements().map(|r| r.text))
-                .map(move |reading| (entry, reading))
-            )
+            .filter(|entry| {
+                entry
+                    .senses()
+                    .any(|sense| sense.can_be_candidate_for(self.class))
+            })
+            .map(|entry| {
+                entry
+                    .kanji_elements()
+                    .map(|r| r.text)
+                    .chain(entry.reading_elements().map(|r| r.text))
+                    .map(move |reading| (entry, reading))
+            })
             .flatten()
             .find(|(_, reading)| *reading == &self.unit)
     }
@@ -374,16 +395,16 @@ impl<'py> FromPyObject<'py> for Analysis {
         let tags = tags.into_iter().map(|tag| UposTag::from_str(&tag).unwrap());
 
         let units = std::iter::zip(parts, tags)
-            .map(|(unit, class)| WordUnit { unit, class, })
+            .map(|(unit, class)| WordUnit { unit, class })
             .collect();
 
         let deps: Vec<usize> = ob.get_item(6)?.extract()?;
 
-        Ok(Self { units, deps, })
+        Ok(Self { units, deps })
     }
 }
 
-type Request = (String, oneshot::Sender<Analysis>,);
+type Request = (String, oneshot::Sender<Analysis>);
 
 pub struct Engine {
     _handle: task::JoinHandle<anyhow::Result<()>>,
@@ -402,7 +423,7 @@ impl Engine {
                 init_tx.send(()).unwrap();
                 loop {
                     match rx.blocking_recv() {
-                        Some((input, res_tx,)) => {
+                        Some((input, res_tx)) => {
                             let morphology = nlp.getattr("analyze")?.call1((input,))?.extract()?;
                             res_tx.send(morphology).unwrap();
                         }
@@ -413,10 +434,13 @@ impl Engine {
         });
 
         init_rx.await.unwrap();
-        Self { _handle, tx, }
+        Self { _handle, tx }
     }
 
-    pub async fn morphological_analysis(&self, input: impl Into<String>) -> anyhow::Result<Analysis> {
+    pub async fn morphological_analysis(
+        &self,
+        input: impl Into<String>,
+    ) -> anyhow::Result<Analysis> {
         let (tx, rx) = oneshot::channel();
         self.tx.send((input.into(), tx))?;
         let morphology = rx.await?;
@@ -432,90 +456,72 @@ impl JMDictSenseExt for jmdict::Sense {
     fn can_be_candidate_for(&self, class: UposTag) -> bool {
         self.parts_of_speech().any(|jmdict_pos| {
             match class {
-                UposTag::Adjective => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Adjective => true,
-                        jmdict::PartOfSpeech::YoiAdjective => true,
-                        jmdict::PartOfSpeech::AdjectivalNoun => true,
-                        jmdict::PartOfSpeech::NoAdjective => true,
-                        jmdict::PartOfSpeech::PreNounAdjectival => true,
-                        jmdict::PartOfSpeech::TaruAdjective => true,
-                        jmdict::PartOfSpeech::AuxiliaryAdjective => true,
-                        jmdict::PartOfSpeech::Unclassified => true,
-                        _ => false,
-                    }
+                UposTag::Adjective => match jmdict_pos {
+                    jmdict::PartOfSpeech::Adjective => true,
+                    jmdict::PartOfSpeech::YoiAdjective => true,
+                    jmdict::PartOfSpeech::AdjectivalNoun => true,
+                    jmdict::PartOfSpeech::NoAdjective => true,
+                    jmdict::PartOfSpeech::PreNounAdjectival => true,
+                    jmdict::PartOfSpeech::TaruAdjective => true,
+                    jmdict::PartOfSpeech::AuxiliaryAdjective => true,
+                    jmdict::PartOfSpeech::Unclassified => true,
+                    _ => false,
                 },
-                UposTag::Adposition => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Particle => true,
-                        _ => false,
-                    }
+                UposTag::Adposition => match jmdict_pos {
+                    jmdict::PartOfSpeech::Particle => true,
+                    _ => false,
                 },
-                UposTag::Adverb => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Adverb => true,
-                        jmdict::PartOfSpeech::AdverbTakingToParticle => true,
-                        jmdict::PartOfSpeech::Particle => true,
-                        jmdict::PartOfSpeech::Unclassified => true,
-                        _ => false,
-                    }
+                UposTag::Adverb => match jmdict_pos {
+                    jmdict::PartOfSpeech::Adverb => true,
+                    jmdict::PartOfSpeech::AdverbTakingToParticle => true,
+                    jmdict::PartOfSpeech::Particle => true,
+                    jmdict::PartOfSpeech::Unclassified => true,
+                    _ => false,
                 },
-                UposTag::Auxiliary => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Auxiliary => true,
-                        jmdict::PartOfSpeech::AuxiliaryAdjective => true,
-                        jmdict::PartOfSpeech::AuxiliaryVerb => true,
-                        jmdict::PartOfSpeech::SpecialSuruVerb => true,
-                        _ => false,
-                    }
+                UposTag::Auxiliary => match jmdict_pos {
+                    jmdict::PartOfSpeech::Auxiliary => true,
+                    jmdict::PartOfSpeech::AuxiliaryAdjective => true,
+                    jmdict::PartOfSpeech::AuxiliaryVerb => true,
+                    jmdict::PartOfSpeech::SpecialSuruVerb => true,
+                    _ => false,
                 },
                 // TODO: check if this is too strict
-                UposTag::CoordinatingConjunction => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Conjunction => true,
-                        jmdict::PartOfSpeech::Particle => true,
-                        _ => false,
-                    }
+                UposTag::CoordinatingConjunction => match jmdict_pos {
+                    jmdict::PartOfSpeech::Conjunction => true,
+                    jmdict::PartOfSpeech::Particle => true,
+                    _ => false,
                 },
-                UposTag::Determiner => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Pronoun => true,
-                        _ => false,
-                    }
+                UposTag::Determiner => match jmdict_pos {
+                    jmdict::PartOfSpeech::Pronoun => true,
+                    _ => false,
                 },
-                UposTag::Interjection => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Expression => true,
-                        jmdict::PartOfSpeech::Interjection => true,
-                        _ => false,
-                    }
+                UposTag::Interjection => match jmdict_pos {
+                    jmdict::PartOfSpeech::Expression => true,
+                    jmdict::PartOfSpeech::Interjection => true,
+                    _ => false,
                 },
-                UposTag::Noun => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::NounOrVerbActingPrenominally => true,
-                        jmdict::PartOfSpeech::AdjectivalNoun => true,
-                        jmdict::PartOfSpeech::PreNounAdjectival => true,
-                        jmdict::PartOfSpeech::Counter => true,
-                        jmdict::PartOfSpeech::CommonNoun => true,
-                        jmdict::PartOfSpeech::AdverbialNoun => true,
-                        jmdict::PartOfSpeech::ProperNoun => true,
-                        jmdict::PartOfSpeech::NounPrefix => true,
-                        jmdict::PartOfSpeech::NounSuffix => true,
-                        jmdict::PartOfSpeech::Suffix => true,
-                        jmdict::PartOfSpeech::TemporalNoun => true,
-                        jmdict::PartOfSpeech::Unclassified => true,
-                        _ => false,
-                    }
+                UposTag::Noun => match jmdict_pos {
+                    jmdict::PartOfSpeech::NounOrVerbActingPrenominally => true,
+                    jmdict::PartOfSpeech::AdjectivalNoun => true,
+                    jmdict::PartOfSpeech::PreNounAdjectival => true,
+                    jmdict::PartOfSpeech::Counter => true,
+                    jmdict::PartOfSpeech::CommonNoun => true,
+                    jmdict::PartOfSpeech::AdverbialNoun => true,
+                    jmdict::PartOfSpeech::ProperNoun => true,
+                    jmdict::PartOfSpeech::NounPrefix => true,
+                    jmdict::PartOfSpeech::NounSuffix => true,
+                    jmdict::PartOfSpeech::Suffix => true,
+                    jmdict::PartOfSpeech::TemporalNoun => true,
+                    jmdict::PartOfSpeech::Unclassified => true,
+                    _ => false,
                 },
                 UposTag::Numeral => false,
-                UposTag::Particle => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Conjunction => true,
-                        jmdict::PartOfSpeech::Suffix => true,
-                        jmdict::PartOfSpeech::Prefix => true,
-                        jmdict::PartOfSpeech::Particle => true,
-                        _ => false,
-                    }
+                UposTag::Particle => match jmdict_pos {
+                    jmdict::PartOfSpeech::Conjunction => true,
+                    jmdict::PartOfSpeech::Suffix => true,
+                    jmdict::PartOfSpeech::Prefix => true,
+                    jmdict::PartOfSpeech::Particle => true,
+                    _ => false,
                 },
                 UposTag::Pronoun => match jmdict_pos {
                     jmdict::PartOfSpeech::Pronoun => true,
@@ -537,15 +543,13 @@ impl JMDictSenseExt for jmdict::Sense {
                     _ => false,
                 },
                 UposTag::Punctuation => false,
-                UposTag::SubordinatingConjunction => {
-                    match jmdict_pos {
-                        jmdict::PartOfSpeech::Auxiliary => true,
-                        jmdict::PartOfSpeech::AuxiliaryAdjective => true,
-                        jmdict::PartOfSpeech::AuxiliaryVerb => true,
-                        jmdict::PartOfSpeech::Conjunction => true,
-                        jmdict::PartOfSpeech::Particle => true,
-                        _ => false,
-                    }
+                UposTag::SubordinatingConjunction => match jmdict_pos {
+                    jmdict::PartOfSpeech::Auxiliary => true,
+                    jmdict::PartOfSpeech::AuxiliaryAdjective => true,
+                    jmdict::PartOfSpeech::AuxiliaryVerb => true,
+                    jmdict::PartOfSpeech::Conjunction => true,
+                    jmdict::PartOfSpeech::Particle => true,
+                    _ => false,
                 },
                 UposTag::Symbol => false,
                 UposTag::Verb => match jmdict_pos {
@@ -607,7 +611,7 @@ impl JMDictSenseExt for jmdict::Sense {
 // #2. お宅様からいただいたお菓子は大変おいしゅうございました
 //    お宅様 gets split into NOUN, NOUN, NOUN, the first two have a dependency on the third and
 //    the dep is classed as 'compound' i.e. the whole thing is being understood as a compound noun
-//    お菓子 gets treated the same way, split into お and 菓子 
+//    お菓子 gets treated the same way, split into お and 菓子
 // => suggested heuristic: honorific/humble language might need special casing
 // => also we don't currently keep dep classes, looks like they can come in handy
 //

@@ -1,3 +1,6 @@
 /target
 .nlp_cache
 *.pyc
+/env
+*.swp
+*.swo
