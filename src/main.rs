@@ -3,7 +3,10 @@ use omoide::{
     args::*,
     nlp::{self, WordRole},
     srs::{Memo, Rating},
+    subs::parse_subtitle_file,
 };
+use std::fs;
+use std::path::Path;
 use std::time::Duration;
 
 fn inspect(memo: &Memo) {
@@ -86,8 +89,22 @@ pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
 }
 
 pub async fn analyse(args: &AnalyseArgs) -> anyhow::Result<()> {
-    if args.word_stats {
-        println!("I should generate some word stats");
+    let corpus_dir = Path::new("./.omoide/corpus");
+    if corpus_dir.exists() {
+        for entry in fs::read_dir(&corpus_dir)?.filter_map(|x| x.ok()) {
+            if entry.file_type()?.is_file() {
+                let parsed = parse_subtitle_file(entry.path());
+                match parsed {
+                    Ok(content) => {
+                        println!("Have valid subs from {}!", entry.path().display());
+                        // TODO process the content!
+                    }
+                    Err(e) => {
+                        eprintln!("Error in {}:\n{}", entry.path().display(), e);
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
