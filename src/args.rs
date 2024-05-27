@@ -12,6 +12,7 @@ pub enum Commands {
     Practice,
     /// Manage the install and training data
     Manage(ManageArgs),
+    /// Analyse our data or performance
     Analyse(AnalyseArgs),
 }
 
