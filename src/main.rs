@@ -1,4 +1,6 @@
+use clap::Parser;
 use omoide::{
+    args::*,
     nlp::{self, WordRole},
     srs::{Memo, Rating},
 };
@@ -13,8 +15,7 @@ fn inspect(memo: &Memo) {
     println!("{:?}", memo);
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+pub async fn practice() -> anyhow::Result<()> {
     // initial review: good
     let mut memo = Memo::new(Rating::Good);
     inspect(&memo);
@@ -75,4 +76,28 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
+    if args.download {
+        println!("I should download some subtitles");
+    }
+    Ok(())
+}
+
+pub async fn analyse(args: &AnalyseArgs) -> anyhow::Result<()> {
+    if args.word_stats {
+        println!("I should generate some word stats");
+    }
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    match &cli.cmd {
+        Some(Commands::Practice) | None => practice().await,
+        Some(Commands::Manage(args)) => manage(&args).await,
+        Some(Commands::Analyse(args)) => analyse(&args).await,
+    }
 }
