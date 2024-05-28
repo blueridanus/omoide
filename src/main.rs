@@ -18,29 +18,9 @@ fn inspect(memo: &Memo) {
     println!("{:?}", memo);
 }
 
-pub async fn practice() -> anyhow::Result<()> {
-    // initial review: good
-    let mut memo = Memo::new(Rating::Good);
-    inspect(&memo);
-    // easy review after 2 days
-    memo.review(Rating::Easy, Duration::from_secs(86400 * 2));
-    inspect(&memo);
-    // hard review after another 2 days
-    memo.review(Rating::Hard, Duration::from_secs(86400 * 2));
-    inspect(&memo);
-    // good review after another 2 days
-    memo.review(Rating::Good, Duration::from_secs(86400 * 2));
-    inspect(&memo);
-    // oh no, tried reviewing it 4 days later and totally forgot it, oops
-    memo.review(Rating::Again, Duration::from_secs(86400 * 4));
-    // trying again after 60s, got it right
-    memo.review(Rating::Good, Duration::from_secs(60));
-    inspect(&memo);
-
+pub async fn process_sentence(sentence: &str) -> anyhow::Result<()> {
     let nlp_engine = nlp::Engine::init().await;
-    let analysis = nlp_engine
-        .morphological_analysis("赤くないボールを取ってください。")
-        .await?;
+    let analysis = nlp_engine.morphological_analysis(sentence).await?;
     let morphology = nlp::Morphology::from_analysis(analysis);
 
     for (i, word) in morphology.words().enumerate() {
@@ -81,6 +61,29 @@ pub async fn practice() -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn practice() -> anyhow::Result<()> {
+    // initial review: good
+    let mut memo = Memo::new(Rating::Good);
+    inspect(&memo);
+    // easy review after 2 days
+    memo.review(Rating::Easy, Duration::from_secs(86400 * 2));
+    inspect(&memo);
+    // hard review after another 2 days
+    memo.review(Rating::Hard, Duration::from_secs(86400 * 2));
+    inspect(&memo);
+    // good review after another 2 days
+    memo.review(Rating::Good, Duration::from_secs(86400 * 2));
+    inspect(&memo);
+    // oh no, tried reviewing it 4 days later and totally forgot it, oops
+    memo.review(Rating::Again, Duration::from_secs(86400 * 4));
+    // trying again after 60s, got it right
+    memo.review(Rating::Good, Duration::from_secs(60));
+    inspect(&memo);
+
+    process_sentence("赤くないボールを取ってください。").await?;
+    Ok(())
+}
+
 pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
     if args.download {
         println!("I should download some subtitles");
@@ -109,6 +112,10 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn analyse(args: &AnalysisArgs) -> anyhow::Result<()> {
+    process_sentence(&args.input).await
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -116,5 +123,6 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Practice) | None => practice().await,
         Some(Commands::Manage(args)) => manage(&args).await,
         Some(Commands::Stats(args)) => stats(&args).await,
+        Some(Commands::Analyse(args)) => analyse(&args).await,
     }
 }

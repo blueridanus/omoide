@@ -10,5 +10,5 @@ anyhow = "1"
 clap = { version = "4.5.4", features = ["derive"] }
 jmdict = "2"
 pyo3 = { version = "0.21", features = ["auto-initialize"] }
-srtlib = "0.1.8"
+srtlib = "0.1.9"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }

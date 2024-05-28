@@ -625,9 +625,9 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 
 [[package]]
 name = "srtlib"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e610047136d4b38a7d81b4560a47293d2b0df9ee606635777c360fcd8a803cc"
+checksum = "27e753f0b53f9ae8592b2a4d6ae6c2fc418f3d17f79d413152cafcd48ff843f0"
 dependencies = [
  "encoding_rs",
 ]

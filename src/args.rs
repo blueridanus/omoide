@@ -14,6 +14,8 @@ pub enum Commands {
     Manage(ManageArgs),
     /// Stats on our data or performance
     Stats(StatsArgs),
+    /// Analyse a sentence
+    Analyse(AnalysisArgs),
 }
 
 #[derive(Clone, Debug, Args)]
@@ -28,4 +30,11 @@ pub struct StatsArgs {
     /// Generate statistics for the words present in the subtitles
     #[clap(long)]
     pub word_stats: bool,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct AnalysisArgs {
+    /// An input sentence to analyse
+    #[clap(long, short)]
+    pub input: String,
 }
