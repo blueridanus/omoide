@@ -88,7 +88,7 @@ pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn analyse(args: &AnalyseArgs) -> anyhow::Result<()> {
+pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
     let corpus_dir = Path::new("./.omoide/corpus");
     if corpus_dir.exists() {
         for entry in fs::read_dir(&corpus_dir)?.filter_map(|x| x.ok()) {
@@ -115,6 +115,6 @@ async fn main() -> anyhow::Result<()> {
     match &cli.cmd {
         Some(Commands::Practice) | None => practice().await,
         Some(Commands::Manage(args)) => manage(&args).await,
-        Some(Commands::Analyse(args)) => analyse(&args).await,
+        Some(Commands::Stats(args)) => stats(&args).await,
     }
 }
