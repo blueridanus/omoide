@@ -1,7 +1,12 @@
+use clap::Parser;
 use omoide::{
+    args::*,
     nlp::{self, WordRole},
     srs::{Memo, Rating},
+    subs::parse_subtitle_file,
 };
+use std::fs;
+use std::path::Path;
 use std::time::Duration;
 
 fn inspect(memo: &Memo) {
@@ -13,30 +18,9 @@ fn inspect(memo: &Memo) {
     println!("{:?}", memo);
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    // initial review: good
-    let mut memo = Memo::new(Rating::Good);
-    inspect(&memo);
-    // easy review after 2 days
-    memo.review(Rating::Easy, Duration::from_secs(86400 * 2));
-    inspect(&memo);
-    // hard review after another 2 days
-    memo.review(Rating::Hard, Duration::from_secs(86400 * 2));
-    inspect(&memo);
-    // good review after another 2 days
-    memo.review(Rating::Good, Duration::from_secs(86400 * 2));
-    inspect(&memo);
-    // oh no, tried reviewing it 4 days later and totally forgot it, oops
-    memo.review(Rating::Again, Duration::from_secs(86400 * 4));
-    // trying again after 60s, got it right
-    memo.review(Rating::Good, Duration::from_secs(60));
-    inspect(&memo);
-
+pub async fn process_sentence(sentence: &str) -> anyhow::Result<()> {
     let nlp_engine = nlp::Engine::init().await;
-    let analysis = nlp_engine
-        .morphological_analysis("赤くないボールを取ってください。")
-        .await?;
+    let analysis = nlp_engine.morphological_analysis(sentence).await?;
     let morphology = nlp::Morphology::from_analysis(analysis);
 
     for (i, word) in morphology.words().enumerate() {
@@ -75,4 +59,70 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+pub async fn practice() -> anyhow::Result<()> {
+    // initial review: good
+    let mut memo = Memo::new(Rating::Good);
+    inspect(&memo);
+    // easy review after 2 days
+    memo.review(Rating::Easy, Duration::from_secs(86400 * 2));
+    inspect(&memo);
+    // hard review after another 2 days
+    memo.review(Rating::Hard, Duration::from_secs(86400 * 2));
+    inspect(&memo);
+    // good review after another 2 days
+    memo.review(Rating::Good, Duration::from_secs(86400 * 2));
+    inspect(&memo);
+    // oh no, tried reviewing it 4 days later and totally forgot it, oops
+    memo.review(Rating::Again, Duration::from_secs(86400 * 4));
+    // trying again after 60s, got it right
+    memo.review(Rating::Good, Duration::from_secs(60));
+    inspect(&memo);
+
+    process_sentence("赤くないボールを取ってください。").await?;
+    Ok(())
+}
+
+pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
+    if args.download {
+        println!("I should download some subtitles");
+    }
+    Ok(())
+}
+
+pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
+    let corpus_dir = Path::new("./.omoide/corpus");
+    if corpus_dir.exists() {
+        for entry in fs::read_dir(&corpus_dir)?.filter_map(|x| x.ok()) {
+            if entry.file_type()?.is_file() {
+                let parsed = parse_subtitle_file(entry.path());
+                match parsed {
+                    Ok(content) => {
+                        println!("Have valid subs from {}!", entry.path().display());
+                        // TODO process the content!
+                    }
+                    Err(e) => {
+                        eprintln!("Error in {}:\n{}", entry.path().display(), e);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn analyse(args: &AnalysisArgs) -> anyhow::Result<()> {
+    process_sentence(&args.input).await
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    match &cli.cmd {
+        Some(Commands::Practice) | None => practice().await,
+        Some(Commands::Manage(args)) => manage(&args).await,
+        Some(Commands::Stats(args)) => stats(&args).await,
+        Some(Commands::Analyse(args)) => analyse(&args).await,
+    }
 }
