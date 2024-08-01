@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Clone, Debug, Parser)]
@@ -33,8 +35,12 @@ pub struct StatsArgs {
 }
 
 #[derive(Clone, Debug, Args)]
+#[group(required = true, multiple = false)]
 pub struct AnalysisArgs {
     /// An input sentence to analyse
     #[clap(long, short)]
-    pub input: Vec<String>,
+    pub sentence: Vec<String>,
+    /// Analyze all sentences in a file
+    #[clap(long, short = 'f')]
+    pub srt_file: Option<PathBuf>,
 }

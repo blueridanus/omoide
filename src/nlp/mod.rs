@@ -221,26 +221,25 @@ impl UposTag {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_str(s: &str) -> Self {
         match s {
-            "ADJ" => Some(UposTag::Adjective),
-            "ADP" => Some(UposTag::Adposition),
-            "ADV" => Some(UposTag::Adverb),
-            "AUX" => Some(UposTag::Auxiliary),
-            "CCONJ" => Some(UposTag::CoordinatingConjunction),
-            "DET" => Some(UposTag::Determiner),
-            "INTJ" => Some(UposTag::Interjection),
-            "NOUN" => Some(UposTag::Noun),
-            "NUM" => Some(UposTag::Numeral),
-            "PART" => Some(UposTag::Particle),
-            "PRON" => Some(UposTag::Pronoun),
-            "PROPN" => Some(UposTag::ProperNoun),
-            "PUNCT" => Some(UposTag::Punctuation),
-            "SCONJ" => Some(UposTag::SubordinatingConjunction),
-            "SYM" => Some(UposTag::Symbol),
-            "VERB" => Some(UposTag::Verb),
-            "X" => Some(UposTag::Other),
-            _ => None,
+            "ADJ" => UposTag::Adjective,
+            "ADP" => UposTag::Adposition,
+            "ADV" => UposTag::Adverb,
+            "AUX" => UposTag::Auxiliary,
+            "CCONJ" => UposTag::CoordinatingConjunction,
+            "DET" => UposTag::Determiner,
+            "INTJ" => UposTag::Interjection,
+            "NOUN" => UposTag::Noun,
+            "NUM" => UposTag::Numeral,
+            "PART" => UposTag::Particle,
+            "PRON" => UposTag::Pronoun,
+            "PROPN" => UposTag::ProperNoun,
+            "PUNCT" => UposTag::Punctuation,
+            "SCONJ" => UposTag::SubordinatingConjunction,
+            "SYM" => UposTag::Symbol,
+            "VERB" => UposTag::Verb,
+            _ => UposTag::Other,
         }
     }
 
@@ -342,7 +341,7 @@ impl<'py> FromPyObject<'py> for Analysis {
         let parts = parts.into_iter();
 
         let tags: Vec<String> = ob.get_item(1)?.extract()?;
-        let tags = tags.into_iter().map(|tag| UposTag::from_str(&tag).unwrap());
+        let tags = tags.into_iter().map(|tag| UposTag::from_str(&tag));
 
         let lemmas: Vec<String> = ob.get_item(2)?.extract()?;
         let lemmas = lemmas.into_iter();

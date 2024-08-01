@@ -120,7 +120,17 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
 }
 
 pub async fn analyse(args: AnalysisArgs) -> anyhow::Result<()> {
-    process_sentences(args.input).await
+    let sentences = match args.srt_file {
+        Some(srt_file) => {
+            crate::parse_subtitle_file(srt_file)?
+            .into_iter()
+            .map(|chunk| chunk.content)
+            .collect()
+        },
+        None => args.sentence,
+    };
+
+    process_sentences(sentences).await
 }
 
 #[tokio::main]
