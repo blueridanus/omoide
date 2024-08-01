@@ -26,7 +26,7 @@ impl WordRole {
     /// This one uses no context from surrounding units, that's done by `Morphology::from_analysis`.
     fn from_upos(unit: &WordUnit) -> Self {
         fn disambiguate_conjunction(unit: &WordUnit) -> WordRole {
-            match unit.lookup_exact() {
+            match unit.lookup_with_pos_filter() {
                 // heuristic: if this word can be a particle, it's a particle
                 // TODO: disambiguation between semes by AGI?
                 Some((entry, _)) => match entry.senses().any(|s| {
@@ -300,7 +300,12 @@ impl WordUnit {
     /// If found, returns the jmdict entry and the matched dictionary form.
     pub fn lookup(&self) -> Option<(jmdict::Entry, &str)> {
         if self.class.is_open() {
-            return self.lookup_exact();
+            let found = self.lookup_with_pos_filter();
+            if found.is_some() {
+                return found;
+            } else {
+                return self.find_in_entries(jmdict::entries());
+            }
         } else {
             return None;
         }
@@ -308,13 +313,21 @@ impl WordUnit {
 
     // TODO: index the dictionary for random access
     // TODO: DRY?
-    fn lookup_exact(&self) -> Option<(jmdict::Entry, &str)> {
-        jmdict::entries()
-            .filter(|entry| {
-                entry
-                    .senses()
-                    .any(|sense| sense.can_be_candidate_for(self.class))
-            })
+    fn lookup_with_pos_filter(&self) -> Option<(jmdict::Entry, &str)> {
+        let filtered = jmdict::entries().filter(|entry| {
+            entry
+                .senses()
+                .any(|sense| sense.can_be_candidate_for(self.class))
+        });
+
+        self.find_in_entries(filtered)
+    }
+
+    fn find_in_entries(
+        &self,
+        entries: impl Iterator<Item = jmdict::Entry>,
+    ) -> Option<(jmdict::Entry, &str)> {
+        entries
             .map(|entry| {
                 entry
                     .kanji_elements()

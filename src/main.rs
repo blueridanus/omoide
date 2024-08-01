@@ -5,9 +5,9 @@ use omoide::{
     srs::{Memo, Rating},
     subs::parse_subtitle_file,
 };
-use std::fs;
 use std::path::Path;
 use std::time::Duration;
+use std::{collections::HashMap, fs};
 
 fn inspect(memo: &Memo) {
     let secs = memo.next_review(0.9).as_secs();
@@ -99,15 +99,27 @@ pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
 }
 
 pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
-    let corpus_dir = Path::new("./.omoide/corpus");
-    if corpus_dir.exists() {
-        for entry in fs::read_dir(&corpus_dir)?.filter_map(|x| x.ok()) {
+    if args.subtitles_dir.exists() {
+        let mut occurrences: HashMap<String, usize> = HashMap::new();
+        let nlp_engine = nlp::Engine::init().await;
+
+        for entry in fs::read_dir(&args.subtitles_dir)?.filter_map(|x| x.ok()) {
             if entry.file_type()?.is_file() {
                 let parsed = parse_subtitle_file(entry.path());
                 match parsed {
                     Ok(content) => {
-                        println!("Have valid subs from {}!", entry.path().display());
-                        // TODO process the content!
+                        let sentences = content.into_iter().map(|chunk| chunk.content).collect();
+
+                        println!("Processing: {}", entry.path().display());
+                        let analyzed = nlp_engine.morphological_analysis_batch(sentences).await?;
+
+                        for analysis in analyzed {
+                            for token in analysis.units {
+                                if token.class.is_open() && token.lookup().is_some() {
+                                    *occurrences.entry(token.lemma).or_insert(0) += 1;
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         eprintln!("Error in {}:\n{}", entry.path().display(), e);
@@ -115,18 +127,24 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
                 }
             }
         }
+
+        let mut occurrences: Vec<(String, usize)> = occurrences.into_iter().collect();
+        occurrences.sort_by(|a, b| b.1.cmp(&a.1));
+
+        println!("Top 25 words:");
+        for (word, count) in occurrences.iter().take(25) {
+            println!("  {word}: {count}");
+        }
     }
     Ok(())
 }
 
 pub async fn analyse(args: AnalysisArgs) -> anyhow::Result<()> {
     let sentences = match args.srt_file {
-        Some(srt_file) => {
-            crate::parse_subtitle_file(srt_file)?
+        Some(srt_file) => crate::parse_subtitle_file(srt_file)?
             .into_iter()
             .map(|chunk| chunk.content)
-            .collect()
-        },
+            .collect(),
         None => args.sentence,
     };
 

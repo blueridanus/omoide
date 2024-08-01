@@ -32,6 +32,9 @@ pub struct StatsArgs {
     /// Generate statistics for the words present in the subtitles
     #[clap(long)]
     pub word_stats: bool,
+    /// Directory with subtitle files
+    #[clap(long, short = 'd')]
+    pub subtitles_dir: PathBuf,
 }
 
 #[derive(Clone, Debug, Args)]
