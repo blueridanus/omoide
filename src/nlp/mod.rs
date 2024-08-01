@@ -359,7 +359,7 @@ impl<'py> FromPyObject<'py> for Analysis {
     }
 }
 
-type Request = (String, oneshot::Sender<Analysis>);
+type Request = (Vec<String>, oneshot::Sender<Vec<Analysis>>);
 
 pub struct Engine {
     _handle: task::JoinHandle<()>,
@@ -379,9 +379,9 @@ impl Engine {
                 loop {
                     match rx.blocking_recv() {
                         Some((input, res_tx)) => {
-                            let morphology =
+                            let morphologies =
                                 nlp.getattr("analyze")?.call1((input,)).unwrap().extract()?;
-                            res_tx.send(morphology).unwrap();
+                            res_tx.send(morphologies).unwrap();
                         }
                         None => return Ok(()),
                     }
@@ -398,10 +398,21 @@ impl Engine {
         &self,
         input: impl Into<String>,
     ) -> anyhow::Result<Analysis> {
+        let mut morphologies = self
+            .morphological_analysis_batch(vec![input.into()])
+            .await?;
+
+        Ok(morphologies.pop().unwrap())
+    }
+
+    pub async fn morphological_analysis_batch(
+        &self,
+        input: Vec<String>,
+    ) -> anyhow::Result<Vec<Analysis>> {
         let (tx, rx) = oneshot::channel();
         self.tx.send((input.into(), tx))?;
-        let morphology = rx.await?;
-        Ok(morphology)
+        let morphologies = rx.await?;
+        Ok(morphologies)
     }
 }
 

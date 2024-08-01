@@ -18,44 +18,51 @@ fn inspect(memo: &Memo) {
     println!("{:?}", memo);
 }
 
-pub async fn process_sentence(sentence: &str) -> anyhow::Result<()> {
+pub async fn process_sentences(sentences: Vec<String>) -> anyhow::Result<()> {
     let nlp_engine = nlp::Engine::init().await;
-    let analysis = nlp_engine.morphological_analysis(sentence).await?;
-    let morphology = nlp::Morphology::from_analysis(analysis);
+    let analyses = nlp_engine.morphological_analysis_batch(sentences).await?;
+    for analysis in analyses {
+        let text: String = analysis
+            .units
+            .iter()
+            .map(|unit| unit.unit.as_str())
+            .collect();
+        println!("\nAnalysis for: {text}");
+        let morphology = nlp::Morphology::from_analysis(analysis);
 
-    for (i, word) in morphology.words().enumerate() {
-        let candidate = word.lookup();
-        println!(
-            "{}: {:?}{}",
-            word,
-            word.role, //正直言って私はクラシック音楽が好きじゃない。かたや、モリーの方が完全にはまっている。
-            match morphology.dependency(i) {
-                dep_i if dep_i == i => ", root".into(),
-                dep_i => match word.role {
-                    WordRole::Other => "".into(),
-                    _ => format!(", depends on {}", morphology.word(dep_i)),
+        for (i, word) in morphology.words().enumerate() {
+            let candidate = word.lookup();
+            println!(
+                "- {}: {:?}{}",
+                word,
+                word.role, //正直言って私はクラシック音楽が好きじゃない。かたや、モリーの方が完全にはまっている。
+                match morphology.dependency(i) {
+                    dep_i if dep_i == i => ", root".into(),
+                    dep_i => match word.role {
+                        WordRole::Other => "".into(),
+                        _ => format!(", depends on {}", morphology.word(dep_i)),
+                    },
                 },
-            },
-        );
-        if let Some(candidate) = candidate {
-            println!("  best JMdict match: {:?}", candidate.1);
+            );
+            if let Some(candidate) = candidate {
+                println!("    best JMdict match: {:?}", candidate.1);
 
-            for (i, gloss) in candidate
-                .0
-                .senses()
-                .map(|sense| {
-                    sense.glosses().filter(|gloss| match gloss.gloss_type {
-                        jmdict::GlossType::LiteralTranslation
-                        | jmdict::GlossType::RegularTranslation => true,
-                        _ => false,
+                for (i, gloss) in candidate
+                    .0
+                    .senses()
+                    .map(|sense| {
+                        sense.glosses().filter(|gloss| match gloss.gloss_type {
+                            jmdict::GlossType::LiteralTranslation
+                            | jmdict::GlossType::RegularTranslation => true,
+                            _ => false,
+                        })
                     })
-                })
-                .flatten()
-                .enumerate()
-            {
-                println!("  {}. {}", i + 1, gloss.text);
+                    .flatten()
+                    .enumerate()
+                {
+                    println!("    {}. {}", i + 1, gloss.text);
+                }
             }
-            println!()
         }
     }
     Ok(())
@@ -80,7 +87,7 @@ pub async fn practice() -> anyhow::Result<()> {
     memo.review(Rating::Good, Duration::from_secs(60));
     inspect(&memo);
 
-    process_sentence("赤くないボールを取ってください。").await?;
+    process_sentences(vec!["赤くないボールを取ってください。".into()]).await?;
     Ok(())
 }
 
@@ -112,17 +119,17 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn analyse(args: &AnalysisArgs) -> anyhow::Result<()> {
-    process_sentence(&args.input).await
+pub async fn analyse(args: AnalysisArgs) -> anyhow::Result<()> {
+    process_sentences(args.input).await
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    match &cli.cmd {
+    match cli.cmd {
         Some(Commands::Practice) | None => practice().await,
         Some(Commands::Manage(args)) => manage(&args).await,
         Some(Commands::Stats(args)) => stats(&args).await,
-        Some(Commands::Analyse(args)) => analyse(&args).await,
+        Some(Commands::Analyse(args)) => analyse(args).await,
     }
 }

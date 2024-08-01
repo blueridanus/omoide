@@ -36,5 +36,5 @@ pub struct StatsArgs {
 pub struct AnalysisArgs {
     /// An input sentence to analyse
     #[clap(long, short)]
-    pub input: String,
+    pub input: Vec<String>,
 }
