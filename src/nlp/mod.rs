@@ -82,7 +82,7 @@ impl Word {
     }
 }
 
-pub type Dependency = Option<usize>;
+pub type Dependency = usize;
 
 #[derive(Debug, Clone)]
 pub struct Morphology {
@@ -96,41 +96,34 @@ impl Morphology {
         struct MergedUnit {
             role: WordRole,
             subunits: Vec<WordUnit>,
-            dep_index: Option<usize>,
+            i: usize,
+            dep_i: usize,
         }
 
         let mut merged: Vec<MergedUnit> = vec![];
-        let mut association: Vec<usize> = vec![];
+        let mut mapping: Vec<usize> = vec![];
 
-        for (_unit, _dep) in iter::zip(analysis.units, analysis.deps) {
-            let i = merged.len().saturating_sub(1);
+        for (i, (_unit, _dep)) in iter::zip(analysis.units, analysis.deps).enumerate() {
             if let Some(last) = merged.last_mut() {
-                match _unit.class {
-                    UposTag::Auxiliary | UposTag::SubordinatingConjunction => {
-                        match last.subunits[0].class {
-                            UposTag::Verb if _dep > 0 => {
-                                if association[_dep - 1] == i {
-                                    last.subunits.push(_unit);
-                                    continue;
-                                }
-                            }
-                            UposTag::Adjective if _dep > 0 => (), // TODO
-                            _ => (),
-                        };
-                        // TODO: handling of aru verb, which gets treated as an AUX
-                    }
-                    _ => (),
+                if last.i == _dep
+                    && !matches!(_unit.lemma.as_str(), "です" | "だ")
+                    && matches!(
+                        _unit.class,
+                        UposTag::Auxiliary | UposTag::SubordinatingConjunction
+                    )
+                {
+                    last.subunits.push(_unit);
+                    mapping.push(merged.len() - 1);
+                    continue;
                 }
             }
+            mapping.push(merged.len().saturating_sub(1));
             merged.push(MergedUnit {
                 role: WordRole::from_upos(&_unit),
                 subunits: vec![_unit],
-                dep_index: match _dep {
-                    0 => None,
-                    i => Some(i - 1),
-                },
+                i,
+                dep_i: _dep,
             });
-            association.push(merged.len() - 1);
         }
 
         Self {
@@ -140,7 +133,8 @@ impl Morphology {
                     |MergedUnit {
                          role,
                          subunits,
-                         dep_index,
+                         i,
+                         dep_i,
                      }| {
                         (
                             Word {
@@ -148,7 +142,7 @@ impl Morphology {
                                 text: subunits.iter().map(|u| u.unit.as_str()).collect(),
                                 upos_subunits: subunits.into_iter().collect(),
                             },
-                            dep_index,
+                            mapping[dep_i],
                         )
                     },
                 )
@@ -289,6 +283,7 @@ impl UposTag {
 #[derive(Debug, Clone)]
 pub struct WordUnit {
     pub unit: String,
+    pub lemma: String,
     pub class: UposTag,
 }
 
@@ -305,56 +300,11 @@ impl WordUnit {
     /// Attemps to find this word in the dictionary.
     /// If found, returns the jmdict entry and the matched dictionary form.
     pub fn lookup(&self) -> Option<(jmdict::Entry, &str)> {
-        match self.class {
-            // TODO: rely on lemmatization instead of longest common prefix
-            UposTag::Verb | UposTag::Adjective => self.lookup_partial(),
-            // Don't bother looking up a dictionary entry for punctuation, symbols, etc.
-            _ if self.class.is_other() => None,
-            // Exact lookup for words which won't be found inflected.
-            _ => self.lookup_exact(),
+        if self.class.is_open() {
+            return self.lookup_exact();
+        } else {
+            return None;
         }
-    }
-
-    /// Least common prefix based dictionary lookup.
-    fn lookup_partial(&self) -> Option<(jmdict::Entry, &str)> {
-        let mut candidate: Option<(jmdict::Entry, &str)> = None;
-        let mut lcp_len = 0usize;
-        let readings = jmdict::entries()
-            // maybe in some cases its still worth returning a match even if
-            // can_be_candidate_for is false?
-            .filter(|entry| {
-                entry
-                    .senses()
-                    .any(|sense| sense.can_be_candidate_for(self.class))
-            })
-            .map(|entry| {
-                entry
-                    .kanji_elements()
-                    .map(|r| r.text)
-                    .chain(entry.reading_elements().map(|r| r.text))
-                    .map(move |reading| (entry, reading))
-            })
-            .flatten();
-
-        for (entry, reading) in readings {
-            for (i, (a, b)) in iter::zip(reading.chars(), self.unit.chars()).enumerate() {
-                if a != b {
-                    break;
-                }
-                if i + 1 == lcp_len && lcp_len > 0 {
-                    if let Some((entry, c)) = candidate {
-                        if reading.len() < c.len() {
-                            candidate = Some((entry, reading));
-                        }
-                    }
-                } else if i + 1 > lcp_len {
-                    lcp_len = i + 1;
-                    candidate = Some((entry, reading));
-                }
-            }
-        }
-
-        candidate
     }
 
     // TODO: index the dictionary for random access
@@ -374,7 +324,7 @@ impl WordUnit {
                     .map(move |reading| (entry, reading))
             })
             .flatten()
-            .find(|(_, reading)| *reading == &self.unit)
+            .find(|(_, reading)| *reading == &self.lemma)
     }
 }
 
@@ -386,19 +336,24 @@ pub struct Analysis {
 
 impl<'py> FromPyObject<'py> for Analysis {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let ob = ob.clone().into_gil_ref().getattr("values")?;
+        let ob = ob.clone().into_gil_ref();
 
-        let parts: Vec<String> = ob.get_item(1)?.extract()?;
+        let parts: Vec<String> = ob.get_item(0)?.extract()?;
         let parts = parts.into_iter();
 
-        let tags: Vec<String> = ob.get_item(3)?.extract()?;
+        let tags: Vec<String> = ob.get_item(1)?.extract()?;
         let tags = tags.into_iter().map(|tag| UposTag::from_str(&tag).unwrap());
 
-        let units = std::iter::zip(parts, tags)
-            .map(|(unit, class)| WordUnit { unit, class })
+        let lemmas: Vec<String> = ob.get_item(2)?.extract()?;
+        let lemmas = lemmas.into_iter();
+
+        use std::iter::zip;
+
+        let units = zip(zip(parts, lemmas), tags)
+            .map(|((unit, lemma), class)| WordUnit { unit, lemma, class })
             .collect();
 
-        let deps: Vec<usize> = ob.get_item(6)?.extract()?;
+        let deps: Vec<usize> = ob.get_item(3)?.extract()?;
 
         Ok(Self { units, deps })
     }
@@ -407,7 +362,7 @@ impl<'py> FromPyObject<'py> for Analysis {
 type Request = (String, oneshot::Sender<Analysis>);
 
 pub struct Engine {
-    _handle: task::JoinHandle<anyhow::Result<()>>,
+    _handle: task::JoinHandle<()>,
     tx: mpsc::UnboundedSender<Request>,
 }
 
@@ -418,19 +373,21 @@ impl Engine {
         let (init_tx, init_rx) = oneshot::channel();
 
         let _handle = task::spawn_blocking(move || {
-            Python::with_gil(|py| {
+            let done: anyhow::Result<()> = Python::with_gil(|py| {
                 let nlp = PyModule::from_code_bound(py, include_str!("nlp.py"), "nlp.py", "nlp")?;
                 init_tx.send(()).unwrap();
                 loop {
                     match rx.blocking_recv() {
                         Some((input, res_tx)) => {
-                            let morphology = nlp.getattr("analyze")?.call1((input,))?.extract()?;
+                            let morphology =
+                                nlp.getattr("analyze")?.call1((input,)).unwrap().extract()?;
                             res_tx.send(morphology).unwrap();
                         }
                         None => return Ok(()),
                     }
                 }
-            })
+            });
+            done.unwrap()
         });
 
         init_rx.await.unwrap();

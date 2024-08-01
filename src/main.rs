@@ -30,8 +30,8 @@ pub async fn process_sentence(sentence: &str) -> anyhow::Result<()> {
             word,
             word.role, //正直言って私はクラシック音楽が好きじゃない。かたや、モリーの方が完全にはまっている。
             match morphology.dependency(i) {
-                None => ", root".into(),
-                Some(dep_i) => match word.role {
+                dep_i if dep_i == i => ", root".into(),
+                dep_i => match word.role {
                     WordRole::Other => "".into(),
                     _ => format!(", depends on {}", morphology.word(dep_i)),
                 },

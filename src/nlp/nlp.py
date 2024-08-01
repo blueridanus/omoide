@@ -1,16 +1,18 @@
-import esupar
-import os
-import hashlib
-import pickle
-from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 
-# god i fucking hate windows
-os.environ["NLP_LAZY"] = "1"
-os.environ["NLP_CACHE"] = "1"
+import sys
+import os
+VENV = os.environ.get("VENV")
+if VENV: sys.path.insert(0, VENV)
+
+import spacy
+import hashlib
+from pathlib import Path
 
 def load_model():
     global nlp
-    nlp = esupar.load("ja_large")
+    nlp = spacy.load('ja_core_news_trf')
 
 CACHE = bool(os.environ.get("NLP_CACHE"))
 if CACHE:
@@ -20,18 +22,18 @@ if not os.environ.get("NLP_LAZY"):
 else:
     nlp = None
 
-def analyze(input: str):
-    if CACHE:
-        hash = hashlib.md5(bytes(input, encoding='utf8')).hexdigest()
-        try:
-            with open(f".nlp_cache/{hash}.pickle", "rb") as file:
-                return pickle.load(file)
-        except FileNotFoundError:
-            pass
+def analyze(docs):
     if nlp is None:
         load_model()
-    analyzed = nlp(input)
-    if CACHE:
-        with open(f".nlp_cache/{hash}.pickle", "wb+") as file:
-            pickle.dump(analyzed, file)
-    return analyzed
+    if isinstance(docs, str):
+        return postprocess(nlp(docs))
+    else:
+        return [postprocess(doc) for doc in nlp.pipe(docs)]
+
+def postprocess(doc):
+    words = [token.text for token in doc]
+    pos_tags = [token.pos_ for token in doc]
+    lemmas = [token.lemma_ for token in doc]
+    deps = [token.head.i for token in doc]
+
+    return (words, pos_tags, lemmas, deps)
