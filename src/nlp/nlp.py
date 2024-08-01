@@ -12,7 +12,7 @@ from pathlib import Path
 
 def load_model():
     global nlp
-    nlp = spacy.load('ja_core_news_trf')
+    nlp = spacy.load('ja_core_news_lg')
 
 CACHE = bool(os.environ.get("NLP_CACHE"))
 if CACHE:

@@ -26,7 +26,7 @@ impl WordRole {
     /// This one uses no context from surrounding units, that's done by `Morphology::from_analysis`.
     fn from_upos(unit: &WordUnit) -> Self {
         fn disambiguate_conjunction(unit: &WordUnit) -> WordRole {
-            match unit.lookup_with_pos_filter() {
+            match unit.lookup_with_pos_filter().next() {
                 // heuristic: if this word can be a particle, it's a particle
                 // TODO: disambiguation between semes by AGI?
                 Some((entry, _)) => match entry.senses().any(|s| {
@@ -77,7 +77,7 @@ impl std::fmt::Display for Word {
 }
 
 impl Word {
-    pub fn lookup(&self) -> Option<(jmdict::Entry, &str)> {
+    pub fn lookup(&self) -> Option<(&jmdict::Entry, &str)> {
         self.upos_subunits[0].lookup()
     }
 }
@@ -298,13 +298,13 @@ impl WordUnit {
 
     /// Attemps to find this word in the dictionary.
     /// If found, returns the jmdict entry and the matched dictionary form.
-    pub fn lookup(&self) -> Option<(jmdict::Entry, &str)> {
+    pub fn lookup(&self) -> Option<(&jmdict::Entry, &str)> {
         if self.class.is_open() {
-            let found = self.lookup_with_pos_filter();
+            let found = self.lookup_with_pos_filter().next();
             if found.is_some() {
                 return found;
             } else {
-                return self.find_in_entries(jmdict::entries());
+                return self.lookup_by_readings().next();
             }
         } else {
             return None;
@@ -313,30 +313,20 @@ impl WordUnit {
 
     // TODO: index the dictionary for random access
     // TODO: DRY?
-    fn lookup_with_pos_filter(&self) -> Option<(jmdict::Entry, &str)> {
-        let filtered = jmdict::entries().filter(|entry| {
+    fn lookup_with_pos_filter(&self) -> impl Iterator<Item = (&jmdict::Entry, &str)> {
+        self.lookup_by_readings().filter(|(entry, _)| {
             entry
                 .senses()
                 .any(|sense| sense.can_be_candidate_for(self.class))
-        });
-
-        self.find_in_entries(filtered)
+        })
     }
 
-    fn find_in_entries(
-        &self,
-        entries: impl Iterator<Item = jmdict::Entry>,
-    ) -> Option<(jmdict::Entry, &str)> {
-        entries
-            .map(|entry| {
-                entry
-                    .kanji_elements()
-                    .map(|r| r.text)
-                    .chain(entry.reading_elements().map(|r| r.text))
-                    .map(move |reading| (entry, reading))
-            })
-            .flatten()
-            .find(|(_, reading)| *reading == &self.lemma)
+    fn lookup_by_readings(&self) -> impl Iterator<Item = (&jmdict::Entry, &str)> {
+        let (reading, entries) = match crate::dict::INDEX_BY_READING.get_key_value(&self.lemma) {
+            Some((reading, entries)) => (reading.as_str(), entries.as_slice()),
+            None => ("", Default::default()),
+        };
+        entries.iter().map(move |e| (e, reading))
     }
 }
 
