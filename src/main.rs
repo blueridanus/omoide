@@ -184,7 +184,7 @@ pub async fn examples(args: ExampleArgs) -> anyhow::Result<()> {
                     found_in_file = true;
                 }
                 found += 1;
-                println!("  [{:?}:{:?}] {}", sub.start, sub.end, sub.content);
+                println!("  [{}] {}", format!("{:02}m{:02}s", sub.start.as_secs() / 60, sub.start.as_secs() % 60 ), sub.content);
             }
             if let Some(max) = args.max {
                 if found >= max {
