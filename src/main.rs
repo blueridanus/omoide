@@ -112,7 +112,7 @@ pub async fn retrieve_and_analyze_subs(subtitles_dir: &Path) -> anyhow::Result<A
                     Ok(content) => {
                         let sentences = content.iter().cloned().map(|chunk| chunk.content).collect();
 
-                        println!("Processing: {}", entry.path().display());
+                        println!("Processing: {}", entry.file_name().to_string_lossy());
                         let morphologies = nlp_engine.morphological_analysis_batch(sentences).await?;
 
                         analyzed.insert(entry.path(), iter::zip(content, morphologies).collect());
@@ -123,6 +123,8 @@ pub async fn retrieve_and_analyze_subs(subtitles_dir: &Path) -> anyhow::Result<A
                 };
             }
         }
+
+        println!();
 
         Ok(analyzed)
     } else {
@@ -178,7 +180,7 @@ pub async fn examples(args: ExampleArgs) -> anyhow::Result<()> {
         for (sub, analysis) in sentences {
             if analysis.units.iter().find(|word| word.lemma == args.word).is_some() {
                 if !found_in_file {
-                    println!("Found in {}:", file.display());
+                    println!("Found in {}:", file.file_name().unwrap().to_string_lossy());
                     found_in_file = true;
                 }
                 found += 1;
