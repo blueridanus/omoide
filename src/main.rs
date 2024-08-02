@@ -1,11 +1,11 @@
 use clap::Parser;
 use omoide::{
     args::*,
-    nlp::{self, WordRole},
+    nlp::{self, Analysis, WordRole},
     srs::{Memo, Rating},
-    subs::parse_subtitle_file,
+    subs::{parse_subtitle_file, SubtitleChunk},
 };
-use std::path::Path;
+use std::{iter, path::{Path, PathBuf}, usize};
 use std::time::Duration;
 use std::{collections::HashMap, fs};
 
@@ -98,32 +98,50 @@ pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
-    if args.subtitles_dir.exists() {
-        let mut occurrences: HashMap<String, usize> = HashMap::new();
+type AnalyzedSubs = HashMap<PathBuf, Vec<(SubtitleChunk, Analysis)>>;
+pub async fn retrieve_and_analyze_subs(subtitles_dir: &Path) -> anyhow::Result<AnalyzedSubs> {
+    if subtitles_dir.exists() {
         let nlp_engine = nlp::Engine::init().await;
 
-        for entry in fs::read_dir(&args.subtitles_dir)?.filter_map(|x| x.ok()) {
+        let mut analyzed = HashMap::new();
+
+        for entry in fs::read_dir(subtitles_dir)?.filter_map(|x| x.ok()) {
             if entry.file_type()?.is_file() {
                 let parsed = parse_subtitle_file(entry.path());
                 match parsed {
                     Ok(content) => {
-                        let sentences = content.into_iter().map(|chunk| chunk.content).collect();
+                        let sentences = content.iter().cloned().map(|chunk| chunk.content).collect();
 
                         println!("Processing: {}", entry.path().display());
-                        let analyzed = nlp_engine.morphological_analysis_batch(sentences).await?;
+                        let morphologies = nlp_engine.morphological_analysis_batch(sentences).await?;
 
-                        for analysis in analyzed {
-                            for token in analysis.units {
-                                if token.class.is_open() && token.lookup().is_some() {
-                                    *occurrences.entry(token.lemma).or_insert(0) += 1;
-                                }
-                            }
-                        }
+                        analyzed.insert(entry.path(), iter::zip(content, morphologies).collect());
                     }
                     Err(e) => {
-                        eprintln!("Error in {}:\n{}", entry.path().display(), e);
+                        anyhow::bail!("Error in {}:\n{}", entry.path().display(), e);
                     }
+                };
+            }
+        }
+
+        Ok(analyzed)
+    } else {
+        anyhow::bail!("Directory not found");
+    }
+}
+
+pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
+    let mut occurrences: HashMap<String, usize> = HashMap::new();
+
+    if args.subtitles_dir.exists() {
+        let analyzed = retrieve_and_analyze_subs(&args.subtitles_dir).await?
+            .into_iter()
+            .flat_map(|(_, analysis)| analysis);
+
+        for (_, analysis) in analyzed {
+            for token in analysis.units {
+                if token.class.is_open() && token.lookup().is_some() {
+                    *occurrences.entry(token.lemma).or_insert(0) += 1;
                 }
             }
         }
@@ -151,6 +169,32 @@ pub async fn analyse(args: AnalysisArgs) -> anyhow::Result<()> {
     process_sentences(sentences).await
 }
 
+pub async fn examples(args: ExampleArgs) -> anyhow::Result<()> {
+    let analyzed = retrieve_and_analyze_subs(&args.subtitles_dir).await?;
+    let mut found = 0usize;
+
+    for (file, sentences) in analyzed {
+        let mut found_in_file = false;
+        for (sub, analysis) in sentences {
+            if analysis.units.iter().find(|word| word.lemma == args.word).is_some() {
+                if !found_in_file {
+                    println!("Found in {}:", file.display());
+                    found_in_file = true;
+                }
+                found += 1;
+                println!("  [{:?}:{:?}] {}", sub.start, sub.end, sub.content);
+            }
+            if let Some(max) = args.max {
+                if found >= max {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -159,5 +203,6 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Manage(args)) => manage(&args).await,
         Some(Commands::Stats(args)) => stats(&args).await,
         Some(Commands::Analyse(args)) => analyse(args).await,
+        Some(Commands::Examples(args)) => examples(args).await,
     }
 }

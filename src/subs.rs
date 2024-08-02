@@ -7,6 +7,7 @@ use std::time::Duration;
 
 /// A subtitle to be shown, contains the start/end time it's shown for and the content shown on
 /// screen.
+#[derive(Clone, Debug)]
 pub struct SubtitleChunk {
     pub start: Duration,
     pub end: Duration,

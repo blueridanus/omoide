@@ -18,6 +18,8 @@ pub enum Commands {
     Stats(StatsArgs),
     /// Analyse a sentence
     Analyse(AnalysisArgs),
+    /// Find example sentences using a given word
+    Examples(ExampleArgs),
 }
 
 #[derive(Clone, Debug, Args)]
@@ -35,6 +37,19 @@ pub struct StatsArgs {
     /// Directory with subtitle files
     #[clap(long, short = 'd')]
     pub subtitles_dir: PathBuf,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct ExampleArgs {
+    /// Word to find example usage of in subs
+    #[clap(long, short)]
+    pub word: String,
+    /// Directory with subtitle files
+    #[clap(long, short = 'd')]
+    pub subtitles_dir: PathBuf,
+    /// Limit the maximum number of retrieved examples
+    #[clap(long)]
+    pub max: Option<usize>,
 }
 
 #[derive(Clone, Debug, Args)]
