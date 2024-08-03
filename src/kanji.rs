@@ -86,6 +86,7 @@ impl WordUnit {
         markup.push_str("<ruby>");
         if !kanjiwise_markup.is_empty() {
             markup.push_str(&kanjiwise_markup);
+            markup.push_str(stack_r); // remaining kana
         } else {
             // we failed to align the furigana to individual kanji, so use a simpler style
             markup.push_str("<rp>(</rp><rt>");
