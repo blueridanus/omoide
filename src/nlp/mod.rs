@@ -79,8 +79,8 @@ impl std::fmt::Display for Word {
 }
 
 impl Word {
-    pub fn lookup(&self) -> Option<(&jmdict::Entry, &str)> {
-        self.upos_subunits[0].lookup()
+    pub fn lookup(&self, lookup_closed: bool) -> Option<(&jmdict::Entry, &str)> {
+        self.upos_subunits[0].lookup(lookup_closed)
     }
 }
 
@@ -300,8 +300,8 @@ impl WordUnit {
 
     /// Attemps to find this word in the dictionary.
     /// If found, returns the jmdict entry and the matched dictionary form.
-    pub fn lookup(&self) -> Option<(&jmdict::Entry, &str)> {
-        if self.class.is_open() {
+    pub fn lookup(&self, lookup_closed: bool) -> Option<(&jmdict::Entry, &str)> {
+        if self.class.is_open() || lookup_closed {
             let found = self.lookup_with_pos_filter().next();
             if found.is_some() {
                 return found;
@@ -619,3 +619,8 @@ impl JMDictSenseExt for jmdict::Sense {
 //     2. to suffer an unexpected defeat
 //     3. to lose information
 //     WHY???
+//
+// #4. 鑑識課の知り合いから
+//    treatment of compounds again, 鑑識課 getting split as two words 鑑識 課
+// => suggested heuristic: merge open forms belonging to the same class if merged entry
+//    is found in dictionary

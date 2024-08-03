@@ -1,12 +1,8 @@
 use clap::Parser;
 use omoide::{
-    args::*,
-    dedup::DocumentDedupSet,
-    document::{Document, DocumentChunk},
-    nlp::{self, Analysis, WordRole},
-    srs::{Memo, Rating},
-    subs::{parse_subtitle_file, SubtitleChunk},
+    args::*, dedup::DocumentDedupSet, document::{Document, DocumentChunk}, kanji::lookup_kanji_readings, nlp::{self, Analysis, WordRole, WordUnit}, srs::{Memo, Rating}, subs::{parse_subtitle_file, SubtitleChunk}
 };
+use regex::Regex;
 use std::time::Duration;
 use std::{collections::HashMap, fs};
 use std::{
@@ -37,7 +33,7 @@ pub async fn process_sentences(sentences: Vec<String>) -> anyhow::Result<()> {
         let morphology = nlp::Morphology::from_analysis(analysis);
 
         for (i, word) in morphology.words().enumerate() {
-            let candidate = word.lookup();
+            let candidate = word.lookup(true);
             println!(
                 "- {}: {:?}{}",
                 word,
@@ -157,7 +153,7 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
         for doc in analyzed {
             for analyzed_sentence in doc.analysis().unwrap() {
                 for token in &analyzed_sentence.units {
-                    if token.class.is_open() && token.lookup().is_some() {
+                    if token.lookup(false).is_some() {
                         *occurrences.entry(token.lemma.clone()).or_insert(0) += 1;
                     }
                 }
@@ -233,6 +229,93 @@ pub async fn examples(args: ExampleArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn read_furigana(args: FuriganaArgs) -> anyhow::Result<()> {
+    let nlp_engine = nlp::Engine::init().await;
+    let analyzed = nlp_engine
+        .morphological_analysis_batch(args.sentence)
+        .await?;
+
+    let kanji_re = Regex::new(r"\p{Han}+").unwrap();
+
+    enum Word {
+        NeedsFurigana((WordUnit, String)),
+        Plain(String),
+    }
+
+    let mut annotated = vec![];
+
+    for analysis in analyzed {
+        let mut words = vec![];
+
+        for token in analysis.units {
+            if kanji_re.is_match(token.unit.as_str()) {
+                // TODO: furigana for words not in dict?
+                if let Some((e, _)) = token.lookup(true) {
+                    if let Some(reading) = e.reading_elements().next() {
+                        words.push(Word::NeedsFurigana((token, reading.text.to_string())));
+                    }
+                }
+            } else {
+                words.push(Word::Plain(token.unit));
+            }
+        }
+
+        annotated.push(words);
+    }
+
+    for annotated in annotated {
+        let mut markup = String::new();
+        for word in annotated {
+            match word {
+                Word::Plain(s) => markup.push_str(&s),
+                Word::NeedsFurigana((word, reading)) => {
+                    let mut stack = &word.unit[..];
+                    let mut stack_r = &reading[..];
+                    let mut kanjiwise_markup = String::new();
+                    while let Some(re_match) = kanji_re.find(stack) {
+                        let skipped_chars = &stack[..re_match.start()].chars().count();
+                        stack = &stack[re_match.start()..];
+                        let (stack_r_skip, _) = stack_r.char_indices().skip(*skipped_chars).next().unwrap();
+                        stack_r = &stack_r[stack_r_skip..];
+                        let kanji = stack.chars().next().unwrap();
+                        kanjiwise_markup.push(kanji);
+
+                        if let Some(mut kanji_readings) = lookup_kanji_readings(&kanji) {
+                            if let Some(matched) = kanji_readings.find(|r| stack_r.starts_with(r)) {
+                                stack = &stack[kanji.len_utf8()..];
+                                stack_r = &stack_r[matched.len()..];
+                                kanjiwise_markup.push_str("<rp>(</rp><rt>");
+                                kanjiwise_markup.push_str(&matched);
+                                kanjiwise_markup.push_str("</rt><rp>)</rp>");
+                                continue;
+                            }
+                        }
+                        
+                        kanjiwise_markup.clear();
+                        break;
+                    }
+
+                    markup.push_str("<ruby>");
+                    if !kanjiwise_markup.is_empty() {
+                        markup.push_str(&kanjiwise_markup);
+                    } else {
+                        // we failed to align the furigana to individual kanji, so use a simpler style
+                        markup.push_str("<rp>(</rp><rt>");
+                        markup.push_str(&reading);
+                        markup.push_str("</rt><rp>)</rp>");
+                    }
+                    
+                    markup.push_str("</ruby>");
+                }
+            }
+        }
+        println!("{markup}");
+        println!();
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -242,5 +325,6 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Stats(args)) => stats(&args).await,
         Some(Commands::Analyse(args)) => analyse(args).await,
         Some(Commands::Examples(args)) => examples(args).await,
+        Some(Commands::Furigana(args)) => read_furigana(args).await,
     }
 }

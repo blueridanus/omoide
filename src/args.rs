@@ -20,6 +20,8 @@ pub enum Commands {
     Analyse(AnalysisArgs),
     /// Find example sentences using a given word
     Examples(ExampleArgs),
+    /// Annotate a sentence with furigana (outputs ruby)
+    Furigana(FuriganaArgs),
 }
 
 #[derive(Clone, Debug, Args)]
@@ -53,9 +55,16 @@ pub struct ExampleArgs {
 }
 
 #[derive(Clone, Debug, Args)]
+pub struct FuriganaArgs {
+    /// Input sentence(s) to annotate with furigana
+    #[clap(long, short)]
+    pub sentence: Vec<String>,
+}
+
+#[derive(Clone, Debug, Args)]
 #[group(required = true, multiple = false)]
 pub struct AnalysisArgs {
-    /// An input sentence to analyse
+    /// Input sentence(s) to analyse
     #[clap(long, short)]
     pub sentence: Vec<String>,
     /// Analyze all sentences in a file

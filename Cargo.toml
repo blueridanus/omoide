@@ -17,3 +17,4 @@ pyo3 = { version = "0.21", features = ["auto-initialize"] }
 regex = "1.10.6"
 srtlib = "0.1.9"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
+wana_kana = "2.0"
