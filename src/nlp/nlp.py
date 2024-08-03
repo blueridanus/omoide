@@ -11,8 +11,9 @@ import hashlib
 from pathlib import Path
 
 def load_model():
-    global nlp
+    global nlp, nlp_small
     nlp = spacy.load('ja_core_news_lg')
+    nlp_small = spacy.load('ja_core_news_sm')
 
 CACHE = bool(os.environ.get("NLP_CACHE"))
 if CACHE:
@@ -20,7 +21,17 @@ if CACHE:
 if not os.environ.get("NLP_LAZY"):
     load_model()
 else:
+    nlp_small = None
     nlp = None
+
+def tokenize(docs):
+    global nlp_small
+    if nlp_small is None:
+        load_model()
+    if isinstance(docs, str):
+        return [token.text for token in nlp_small(docs)]
+    else:
+        return [list(map(lambda token: token.text, doc)) for doc in nlp_small.pipe(docs)]
 
 def analyze(docs):
     if nlp is None:

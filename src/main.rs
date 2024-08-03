@@ -1,13 +1,19 @@
 use clap::Parser;
 use omoide::{
     args::*,
+    dedup::DocumentDedupSet,
+    document::{Document, DocumentChunk},
     nlp::{self, Analysis, WordRole},
     srs::{Memo, Rating},
     subs::{parse_subtitle_file, SubtitleChunk},
 };
-use std::{iter, path::{Path, PathBuf}, usize};
 use std::time::Duration;
 use std::{collections::HashMap, fs};
+use std::{
+    iter,
+    path::{Path, PathBuf},
+    usize,
+};
 
 fn inspect(memo: &Memo) {
     let secs = memo.next_review(0.9).as_secs();
@@ -99,23 +105,31 @@ pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
 }
 
 type AnalyzedSubs = HashMap<PathBuf, Vec<(SubtitleChunk, Analysis)>>;
-pub async fn retrieve_and_analyze_subs(subtitles_dir: &Path) -> anyhow::Result<AnalyzedSubs> {
+pub async fn retrieve_and_analyze_subs(subtitles_dir: &Path) -> anyhow::Result<DocumentDedupSet> {
     if subtitles_dir.exists() {
         let nlp_engine = nlp::Engine::init().await;
 
-        let mut analyzed = HashMap::new();
+        let mut docs = DocumentDedupSet::new();
 
         for entry in fs::read_dir(subtitles_dir)?.filter_map(|x| x.ok()) {
             if entry.file_type()?.is_file() {
                 let parsed = parse_subtitle_file(entry.path());
                 match parsed {
                     Ok(content) => {
-                        let sentences = content.iter().cloned().map(|chunk| chunk.content).collect();
+                        let doc = Document::new_with_source(
+                            content.into_iter().map(|v| v.into()).collect(),
+                            entry.path(),
+                        );
 
-                        println!("Processing: {}", entry.file_name().to_string_lossy());
-                        let morphologies = nlp_engine.morphological_analysis_batch(sentences).await?;
-
-                        analyzed.insert(entry.path(), iter::zip(content, morphologies).collect());
+                        if let Some(idx) = docs.insert(&nlp_engine, doc).await? {
+                            println!("Processing: {}", entry.file_name().to_string_lossy());
+                            docs[idx].analyze(&nlp_engine).await?;
+                        } else {
+                            println!(
+                                "Skipping as duplicate: {}",
+                                entry.file_name().to_string_lossy()
+                            );
+                        }
                     }
                     Err(e) => {
                         anyhow::bail!("Error in {}:\n{}", entry.path().display(), e);
@@ -126,7 +140,7 @@ pub async fn retrieve_and_analyze_subs(subtitles_dir: &Path) -> anyhow::Result<A
 
         println!();
 
-        Ok(analyzed)
+        Ok(docs)
     } else {
         anyhow::bail!("Directory not found");
     }
@@ -136,14 +150,16 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
     let mut occurrences: HashMap<String, usize> = HashMap::new();
 
     if args.subtitles_dir.exists() {
-        let analyzed = retrieve_and_analyze_subs(&args.subtitles_dir).await?
-            .into_iter()
-            .flat_map(|(_, analysis)| analysis);
+        let analyzed = retrieve_and_analyze_subs(&args.subtitles_dir)
+            .await?
+            .into_docs();
 
-        for (_, analysis) in analyzed {
-            for token in analysis.units {
-                if token.class.is_open() && token.lookup().is_some() {
-                    *occurrences.entry(token.lemma).or_insert(0) += 1;
+        for doc in analyzed {
+            for analyzed_sentence in doc.analysis().unwrap() {
+                for token in &analyzed_sentence.units {
+                    if token.class.is_open() && token.lookup().is_some() {
+                        *occurrences.entry(token.lemma.clone()).or_insert(0) += 1;
+                    }
                 }
             }
         }
@@ -172,19 +188,39 @@ pub async fn analyse(args: AnalysisArgs) -> anyhow::Result<()> {
 }
 
 pub async fn examples(args: ExampleArgs) -> anyhow::Result<()> {
-    let analyzed = retrieve_and_analyze_subs(&args.subtitles_dir).await?;
+    let analyzed = retrieve_and_analyze_subs(&args.subtitles_dir)
+        .await?
+        .into_docs();
     let mut found = 0usize;
 
-    for (file, sentences) in analyzed {
+    for doc in analyzed {
         let mut found_in_file = false;
-        for (sub, analysis) in sentences {
-            if analysis.units.iter().find(|word| word.lemma == args.word).is_some() {
+        for (analyzed_sentence, chunk) in iter::zip(doc.analysis().unwrap(), doc.chunks()) {
+            if analyzed_sentence
+                .units
+                .iter()
+                .find(|word| word.lemma == args.word)
+                .is_some()
+            {
                 if !found_in_file {
-                    println!("Found in {}:", file.file_name().unwrap().to_string_lossy());
+                    println!(
+                        "Found in {}:",
+                        doc.source().unwrap().file_name().unwrap().to_string_lossy()
+                    );
                     found_in_file = true;
                 }
                 found += 1;
-                println!("  [{}] {}", format!("{:02}m{:02}s", sub.start.as_secs() / 60, sub.start.as_secs() % 60 ), sub.content);
+                if let DocumentChunk::Subs(sub) = chunk {
+                    println!(
+                        "  [{}] {}",
+                        format!(
+                            "{:02}m{:02}s",
+                            sub.start.as_secs() / 60,
+                            sub.start.as_secs() % 60
+                        ),
+                        sub.content
+                    );
+                }
             }
             if let Some(max) = args.max {
                 if found >= max {

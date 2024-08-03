@@ -1,6 +1,8 @@
 use pyo3::conversion::FromPyObject;
 use pyo3::prelude::*;
 use std::iter;
+use std::ops::BitXor;
+use std::path::{Path, PathBuf};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
 
@@ -361,17 +363,25 @@ impl<'py> FromPyObject<'py> for Analysis {
     }
 }
 
-type Request = (Vec<String>, oneshot::Sender<Vec<Analysis>>);
-
 pub struct Engine {
     _handle: task::JoinHandle<()>,
-    tx: mpsc::UnboundedSender<Request>,
+    tx: mpsc::UnboundedSender<EngineCommand>,
+}
+
+enum EngineCommand {
+    Analyze(Vec<String>, oneshot::Sender<Vec<Analysis>>),
+    Tokenize(Vec<String>, oneshot::Sender<DocumentTokenization>),
+}
+
+#[derive(Clone, Debug)]
+pub struct DocumentTokenization {
+    pub tokenization: Vec<Vec<String>>, // TODO: holy allocations...? those strings are very small
 }
 
 impl Engine {
     // TODO: error handling
     pub async fn init() -> Self {
-        let (tx, mut rx) = mpsc::unbounded_channel::<Request>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<EngineCommand>();
         let (init_tx, init_rx) = oneshot::channel();
 
         let _handle = task::spawn_blocking(move || {
@@ -379,13 +389,24 @@ impl Engine {
                 let nlp = PyModule::from_code_bound(py, include_str!("nlp.py"), "nlp.py", "nlp")?;
                 init_tx.send(()).unwrap();
                 loop {
-                    match rx.blocking_recv() {
-                        Some((input, res_tx)) => {
-                            let morphologies =
-                                nlp.getattr("analyze")?.call1((input,)).unwrap().extract()?;
-                            res_tx.send(morphologies).unwrap();
+                    if let Some(cmd) = rx.blocking_recv() {
+                        match cmd {
+                            EngineCommand::Analyze(input, res_tx) => {
+                                let morphologies =
+                                    nlp.getattr("analyze")?.call1((input,)).unwrap().extract()?;
+                                res_tx.send(morphologies).unwrap();
+                            }
+                            EngineCommand::Tokenize(input, res_tx) => {
+                                let tokenization = nlp
+                                    .getattr("tokenize")?
+                                    .call1((input,))
+                                    .unwrap()
+                                    .extract()?;
+                                res_tx.send(DocumentTokenization { tokenization }).unwrap();
+                            }
                         }
-                        None => return Ok(()),
+                    } else {
+                        return Ok(());
                     }
                 }
             });
@@ -412,9 +433,16 @@ impl Engine {
         input: Vec<String>,
     ) -> anyhow::Result<Vec<Analysis>> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send((input.into(), tx))?;
+        self.tx.send(EngineCommand::Analyze(input.into(), tx))?;
         let morphologies = rx.await?;
         Ok(morphologies)
+    }
+
+    pub async fn tokenize_batch(&self, input: Vec<String>) -> anyhow::Result<DocumentTokenization> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(EngineCommand::Tokenize(input, tx))?;
+        let tokenized = rx.await?;
+        Ok(tokenized)
     }
 }
 
