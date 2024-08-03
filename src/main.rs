@@ -1,15 +1,15 @@
 use clap::Parser;
 use omoide::{
-    args::*, dedup::DocumentDedupSet, document::{Document, DocumentChunk}, kanji::lookup_kanji_readings, nlp::{self, Analysis, WordRole, WordUnit}, srs::{Memo, Rating}, subs::{parse_subtitle_file, SubtitleChunk}
+    args::*,
+    dedup::DocumentDedupSet,
+    document::{Document, DocumentChunk},
+    nlp::{self, WordRole},
+    srs::{Memo, Rating},
+    subs::parse_subtitle_file,
 };
-use regex::Regex;
 use std::time::Duration;
 use std::{collections::HashMap, fs};
-use std::{
-    iter,
-    path::{Path, PathBuf},
-    usize,
-};
+use std::{iter, path::Path, usize};
 
 fn inspect(memo: &Memo) {
     let secs = memo.next_review(0.9).as_secs();
@@ -100,7 +100,6 @@ pub async fn manage(args: &ManageArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-type AnalyzedSubs = HashMap<PathBuf, Vec<(SubtitleChunk, Analysis)>>;
 pub async fn retrieve_and_analyze_subs(subtitles_dir: &Path) -> anyhow::Result<DocumentDedupSet> {
     if subtitles_dir.exists() {
         let nlp_engine = nlp::Engine::init().await;
@@ -235,80 +234,17 @@ pub async fn read_furigana(args: FuriganaArgs) -> anyhow::Result<()> {
         .morphological_analysis_batch(args.sentence)
         .await?;
 
-    let kanji_re = Regex::new(r"\p{Han}+").unwrap();
-
-    enum Word {
-        NeedsFurigana((WordUnit, String)),
-        Plain(String),
-    }
-
-    let mut annotated = vec![];
-
     for analysis in analyzed {
-        let mut words = vec![];
+        let mut markup = String::new();
 
         for token in analysis.units {
-            if kanji_re.is_match(token.unit.as_str()) {
-                // TODO: furigana for words not in dict?
-                if let Some((e, _)) = token.lookup(true) {
-                    if let Some(reading) = e.reading_elements().next() {
-                        words.push(Word::NeedsFurigana((token, reading.text.to_string())));
-                    }
-                }
+            if let Some(ruby) = token.ruby_furigana() {
+                markup.push_str(&ruby);
             } else {
-                words.push(Word::Plain(token.unit));
+                markup.push_str(&token.unit);
             }
         }
 
-        annotated.push(words);
-    }
-
-    for annotated in annotated {
-        let mut markup = String::new();
-        for word in annotated {
-            match word {
-                Word::Plain(s) => markup.push_str(&s),
-                Word::NeedsFurigana((word, reading)) => {
-                    let mut stack = &word.unit[..];
-                    let mut stack_r = &reading[..];
-                    let mut kanjiwise_markup = String::new();
-                    while let Some(re_match) = kanji_re.find(stack) {
-                        let skipped_chars = &stack[..re_match.start()].chars().count();
-                        stack = &stack[re_match.start()..];
-                        let (stack_r_skip, _) = stack_r.char_indices().skip(*skipped_chars).next().unwrap();
-                        stack_r = &stack_r[stack_r_skip..];
-                        let kanji = stack.chars().next().unwrap();
-                        kanjiwise_markup.push(kanji);
-
-                        if let Some(mut kanji_readings) = lookup_kanji_readings(&kanji) {
-                            if let Some(matched) = kanji_readings.find(|r| stack_r.starts_with(r)) {
-                                stack = &stack[kanji.len_utf8()..];
-                                stack_r = &stack_r[matched.len()..];
-                                kanjiwise_markup.push_str("<rp>(</rp><rt>");
-                                kanjiwise_markup.push_str(&matched);
-                                kanjiwise_markup.push_str("</rt><rp>)</rp>");
-                                continue;
-                            }
-                        }
-                        
-                        kanjiwise_markup.clear();
-                        break;
-                    }
-
-                    markup.push_str("<ruby>");
-                    if !kanjiwise_markup.is_empty() {
-                        markup.push_str(&kanjiwise_markup);
-                    } else {
-                        // we failed to align the furigana to individual kanji, so use a simpler style
-                        markup.push_str("<rp>(</rp><rt>");
-                        markup.push_str(&reading);
-                        markup.push_str("</rt><rp>)</rp>");
-                    }
-                    
-                    markup.push_str("</ruby>");
-                }
-            }
-        }
         println!("{markup}");
         println!();
     }

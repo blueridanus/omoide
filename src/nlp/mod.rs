@@ -1,10 +1,10 @@
 use pyo3::conversion::FromPyObject;
 use pyo3::prelude::*;
 use std::iter;
-use std::ops::BitXor;
-use std::path::{Path, PathBuf};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
+
+use crate::kanji::KANJI_RE;
 
 // TODO: parameterize by categories. tense, politeness, polarity blah blah
 #[derive(Debug, Clone, Copy)]
@@ -296,6 +296,10 @@ impl WordUnit {
             UposTag::Adjective => todo!(),
             _ => self.unit.clone(),
         }
+    }
+
+    pub fn has_kanji(&self) -> bool {
+        KANJI_RE.is_match(self.unit.as_str())
     }
 
     /// Attemps to find this word in the dictionary.

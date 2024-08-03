@@ -1,7 +1,10 @@
 use kanjidic_parser::kanjidic::Kanjidic;
 use kanjidic_types::Character;
 use lazy_static::lazy_static;
+use regex::Regex;
 use wana_kana::to_hiragana::to_hiragana;
+
+use crate::nlp::WordUnit;
 
 lazy_static! {
     static ref KANJIDIC: Kanjidic = {
@@ -10,6 +13,7 @@ lazy_static! {
         let skipped = std::str::from_utf8(&xml.as_bytes()[start..]).unwrap();
         Kanjidic::try_from(skipped).expect("couldn't parse kanjidic file")
     };
+    pub(crate) static ref KANJI_RE: Regex = Regex::new(r"\p{Han}+").unwrap();
 }
 
 pub fn lookup_kanji(by: &char) -> Option<Character> {
@@ -37,6 +41,60 @@ pub fn lookup_kanji_readings(by: &char) -> Option<impl Iterator<Item = String>> 
         Some(readings.into_iter().map(|r| to_hiragana(r.as_str())))
     } else {
         None
+    }
+}
+
+impl WordUnit {
+    pub fn ruby_furigana(&self) -> Option<String> {
+        let mut reading = None;
+        if self.has_kanji() {
+            if let Some((e, _)) = self.lookup(true) {
+                reading = e.reading_elements().next();
+            }
+        }
+        if reading.is_none() {
+            return None;
+        }
+        let reading = reading.unwrap().text;
+        let mut markup = String::new();
+        let mut stack = &self.unit[..];
+        let mut stack_r = &reading[..];
+        let mut kanjiwise_markup = String::new();
+        while let Some(re_match) = KANJI_RE.find(stack) {
+            let skipped_chars = &stack[..re_match.start()].chars().count();
+            stack = &stack[re_match.start()..];
+            let (stack_r_skip, _) = stack_r.char_indices().skip(*skipped_chars).next().unwrap();
+            stack_r = &stack_r[stack_r_skip..];
+            let kanji = stack.chars().next().unwrap();
+            kanjiwise_markup.push(kanji);
+
+            if let Some(mut kanji_readings) = lookup_kanji_readings(&kanji) {
+                if let Some(matched) = kanji_readings.find(|r| stack_r.starts_with(r)) {
+                    stack = &stack[kanji.len_utf8()..];
+                    stack_r = &stack_r[matched.len()..];
+                    kanjiwise_markup.push_str("<rp>(</rp><rt>");
+                    kanjiwise_markup.push_str(&matched);
+                    kanjiwise_markup.push_str("</rt><rp>)</rp>");
+                    continue;
+                }
+            }
+
+            kanjiwise_markup.clear();
+            break;
+        }
+
+        markup.push_str("<ruby>");
+        if !kanjiwise_markup.is_empty() {
+            markup.push_str(&kanjiwise_markup);
+        } else {
+            // we failed to align the furigana to individual kanji, so use a simpler style
+            markup.push_str("<rp>(</rp><rt>");
+            markup.push_str(&reading);
+            markup.push_str("</rt><rp>)</rp>");
+        }
+
+        markup.push_str("</ruby>");
+        Some(markup)
     }
 }
 
