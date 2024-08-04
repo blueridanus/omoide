@@ -121,6 +121,11 @@ impl Word {
         self.lemma_units.iter().map(|u| u.lemma.as_str()).collect()
     }
 
+    #[pyo3(name = "role")]
+    fn role_py(&self) -> WordRole {
+        self.role.clone()
+    }
+
     pub fn has_kanji(&self) -> bool {
         KANJI_RE.is_match(self.text.as_str())
     }
