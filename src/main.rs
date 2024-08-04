@@ -1,4 +1,5 @@
 use clap::Parser;
+use jmdict::GlossLanguage;
 use omoide::{
     args::*,
     dedup::DocumentDedupSet,
@@ -22,8 +23,8 @@ fn inspect(memo: &Memo) {
 
 pub async fn process_sentences(sentences: Vec<String>) -> anyhow::Result<()> {
     let nlp_engine = nlp::Engine::init().await;
-    let analyses = nlp_engine.morphological_analysis_batch(sentences).await?;
-    for analysis in analyses {
+    let analyzes = nlp_engine.morphological_analysis_batch(sentences).await?;
+    for analysis in analyzes {
         let text: String = analysis
             .units
             .iter()
@@ -53,11 +54,14 @@ pub async fn process_sentences(sentences: Vec<String>) -> anyhow::Result<()> {
                     .0
                     .senses()
                     .map(|sense| {
-                        sense.glosses().filter(|gloss| match gloss.gloss_type {
-                            jmdict::GlossType::LiteralTranslation
-                            | jmdict::GlossType::RegularTranslation => true,
-                            _ => false,
-                        })
+                        sense
+                            .glosses()
+                            .filter(|gloss| match gloss.gloss_type {
+                                jmdict::GlossType::LiteralTranslation
+                                | jmdict::GlossType::RegularTranslation => true,
+                                _ => false,
+                            })
+                            .filter(|gloss| gloss.language == GlossLanguage::English)
                     })
                     .flatten()
                     .enumerate()
@@ -170,7 +174,7 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn analyse(args: AnalysisArgs) -> anyhow::Result<()> {
+pub async fn analyze(args: AnalysisArgs) -> anyhow::Result<()> {
     let sentences = match args.srt_file {
         Some(srt_file) => crate::parse_subtitle_file(srt_file)?
             .into_iter()
@@ -260,7 +264,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Practice) | None => practice().await,
         Some(Commands::Manage(args)) => manage(&args).await,
         Some(Commands::Stats(args)) => stats(&args).await,
-        Some(Commands::Analyse(args)) => analyse(args).await,
+        Some(Commands::Analyze(args)) => analyze(args).await,
         Some(Commands::Examples(args)) => examples(args).await,
         Some(Commands::Furigana(args)) => read_furigana(args).await,
     }

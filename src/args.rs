@@ -16,8 +16,8 @@ pub enum Commands {
     Manage(ManageArgs),
     /// Stats on our data or performance
     Stats(StatsArgs),
-    /// Analyse a sentence
-    Analyse(AnalysisArgs),
+    /// Analyze a sentence
+    Analyze(AnalysisArgs),
     /// Find example sentences using a given word
     Examples(ExampleArgs),
     /// Annotate a sentence with furigana (outputs ruby)
