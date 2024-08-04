@@ -34,7 +34,7 @@ pub async fn process_sentences(sentences: Vec<String>) -> anyhow::Result<()> {
         let morphology = nlp::Morphology::from_analysis(analysis);
 
         for (i, word) in morphology.words().enumerate() {
-            let candidate = word.lookup(true);
+            let candidate = word.lookup(false);
             println!(
                 "- {}: {:?}{}",
                 word,

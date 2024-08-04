@@ -44,15 +44,23 @@ impl WordRole {
             }
         }
 
+        fn disambiguate_verb(unit: &WordUnit) -> WordRole {
+            if matches!(unit.lemma.as_str(), "だ" | "です") {
+                WordRole::Copula
+            } else {
+                WordRole::Verb
+            }
+        }
+
         match unit.class {
             UposTag::Adjective => Self::Adjective,
             UposTag::Adposition => Self::Particle,
             UposTag::Adverb => Self::Adverb,
-            // TODO: check if auxiliaries are ever not verbs, if so impl disambiguate_auxiliary
-            UposTag::Auxiliary => Self::Verb,
+            UposTag::Auxiliary => disambiguate_verb(unit),
             UposTag::CoordinatingConjunction => disambiguate_conjunction(unit),
             UposTag::Determiner => Self::Determiner,
             UposTag::Interjection => Self::Expression,
+            // TODO: counters
             UposTag::Noun => Self::Noun,
             UposTag::Numeral => Self::Other,
             UposTag::Particle => Self::Particle,
@@ -61,9 +69,26 @@ impl WordRole {
             UposTag::Punctuation => Self::Other,
             UposTag::SubordinatingConjunction => disambiguate_conjunction(unit),
             UposTag::Symbol => Self::Other,
-            UposTag::Verb => Self::Verb,
+            UposTag::Verb => disambiguate_verb(unit),
             UposTag::Other => Self::Other,
         }
+    }
+
+    pub fn is_open(&self) -> bool {
+        match self {
+            WordRole::Verb => true,
+            WordRole::Noun => true,
+            WordRole::Adjective => true,
+            WordRole::Adverb => true,
+            WordRole::Pronoun => false,
+            WordRole::Determiner => false,
+            WordRole::Particle => false,
+            WordRole::Conjunction => false,
+            WordRole::Counter => true,
+            WordRole::Copula => false,
+            WordRole::Expression => true,
+            WordRole::Other => false,
+        }        
     }
 }
 
@@ -102,18 +127,23 @@ impl Word {
                 .map(|t| t.lemma.as_str())
                 .collect::<String>();
             if let Some(entries) = INDEX_BY_READING.get(&merged_reading) {
-                let entry = if lookup_closed {
-                    Some(&entries[0])
-                } else {
-                    entries.iter().find(|entry| {
+
+                if !lookup_closed && !self.role.is_open() {
+                    return None;
+                }
+
+                let entry = entries
+                    .iter()
+                    .find(|entry| {
                         entry
                             .senses()
                             .any(|sense| sense.can_be_candidate_for(self.upos_subunits[0].class))
-                    })
-                };
+                    });
 
                 if let Some(entry) = entry {
                     return Some((entry.clone(), merged_reading));
+                } else {
+                    return Some((entries[0], merged_reading));
                 }
             }
         }
@@ -594,7 +624,6 @@ impl JMDictSenseExt for jmdict::Sense {
                 UposTag::Adverb => match jmdict_pos {
                     jmdict::PartOfSpeech::Adverb => true,
                     jmdict::PartOfSpeech::AdverbTakingToParticle => true,
-                    jmdict::PartOfSpeech::Particle => true,
                     jmdict::PartOfSpeech::Unclassified => true,
                     _ => false,
                 },
