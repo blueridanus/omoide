@@ -70,6 +70,11 @@ impl Word {
         let mut kanjiwise_markup = String::new();
         while let Some(re_match) = KANJI_RE.find(stack) {
             let skipped_chars = &stack[..re_match.start()].chars().count();
+            if *skipped_chars > 0 {
+                kanjiwise_markup.push_str("</ruby>");
+                kanjiwise_markup.push_str(&stack[..re_match.start()]);
+                kanjiwise_markup.push_str("<ruby>");
+            }
             stack = &stack[re_match.start()..];
             let stack_r_skip = stack_r
                 .char_indices()
