@@ -8,6 +8,7 @@ use crate::kanji::KANJI_RE;
 
 // TODO: parameterize by categories. tense, politeness, polarity blah blah
 #[derive(Debug, Clone, Copy)]
+#[pyclass]
 pub enum WordRole {
     Verb,
     Noun,
@@ -87,6 +88,7 @@ impl Word {
 pub type Dependency = usize;
 
 #[derive(Debug, Clone)]
+#[pyclass]
 pub struct Morphology {
     /// tuple of the word and the index to the dependency
     /// dependency is None if this is the root of the sentence
@@ -178,6 +180,7 @@ impl Morphology {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[pyclass]
 pub enum UposTag {
     Adjective,
     Adposition,
@@ -200,8 +203,9 @@ pub enum UposTag {
 
 // TODO: consider a more specialized set of categories for our purposes which we
 // can convert to from the upos output. see comment at the end of this file
+#[pymethods]
 impl UposTag {
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             UposTag::Adjective => "ADJ",
             UposTag::Adposition => "ADP",
@@ -223,6 +227,7 @@ impl UposTag {
         }
     }
 
+    #[new]
     pub fn from_str(s: &str) -> Self {
         match s {
             "ADJ" => UposTag::Adjective,
@@ -245,7 +250,7 @@ impl UposTag {
         }
     }
 
-    pub fn is_open(self) -> bool {
+    pub fn is_open(&self) -> bool {
         match self {
             UposTag::Adjective => true,
             UposTag::Adverb => true,
@@ -257,7 +262,7 @@ impl UposTag {
         }
     }
 
-    pub fn is_closed(self) -> bool {
+    pub fn is_closed(&self) -> bool {
         match self {
             UposTag::Adposition => true,
             UposTag::Auxiliary => true,
@@ -271,7 +276,7 @@ impl UposTag {
         }
     }
 
-    pub fn is_other(self) -> bool {
+    pub fn is_other(&self) -> bool {
         match self {
             UposTag::Punctuation => true,
             UposTag::Symbol => true,
@@ -282,14 +287,25 @@ impl UposTag {
 }
 
 #[derive(Debug, Clone)]
+#[pyclass]
 pub struct WordUnit {
     pub unit: String,
     pub lemma: String,
     pub class: UposTag,
 }
 
+// TODO: implement lemmatization by undoing inflection
+#[pymethods]
 impl WordUnit {
-    // TODO: implement lemmatization by undoing inflection
+    #[new]
+    fn py_new(unit: String, lemma: String, class: UposTag) -> Self {
+        Self { unit, lemma, class }
+    }
+
+    fn __str__(&self) -> &str {
+        &self.unit
+    }
+
     pub fn lemmatize(&self) -> String {
         match self.class {
             UposTag::Verb => todo!(),
@@ -301,7 +317,9 @@ impl WordUnit {
     pub fn has_kanji(&self) -> bool {
         KANJI_RE.is_match(self.unit.as_str())
     }
+}
 
+impl WordUnit {
     /// Attemps to find this word in the dictionary.
     /// If found, returns the jmdict entry and the matched dictionary form.
     pub fn lookup(&self, lookup_closed: bool) -> Option<(&jmdict::Entry, &str)> {
@@ -337,14 +355,38 @@ impl WordUnit {
 }
 
 #[derive(Debug, Clone)]
+#[pyclass]
 pub struct Analysis {
     pub units: Vec<WordUnit>,
     pub deps: Vec<usize>,
 }
 
-impl<'py> FromPyObject<'py> for Analysis {
+impl From<AnalysisRaw> for Analysis {
+    fn from(value: AnalysisRaw) -> Self {
+        Self { 
+            units: value.units,
+            deps: value.deps,
+        }
+    }
+}
+
+#[pymethods]
+impl Analysis {
+    #[new]
+    fn py_new(units: Vec<WordUnit>, deps: Vec<usize>) -> Self {
+        Self {units, deps,}
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AnalysisRaw {
+    pub units: Vec<WordUnit>,
+    pub deps: Vec<usize>,
+}
+
+impl<'py> FromPyObject<'py> for AnalysisRaw {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let ob = ob.clone().into_gil_ref();
+        let ob = ob.clone();
 
         let parts: Vec<String> = ob.get_item(0)?.extract()?;
         let parts = parts.into_iter();
@@ -378,6 +420,7 @@ enum EngineCommand {
 }
 
 #[derive(Clone, Debug)]
+#[pyclass]
 pub struct DocumentTokenization {
     pub tokenization: Vec<Vec<String>>, // TODO: holy allocations...? those strings are very small
 }
@@ -396,9 +439,10 @@ impl Engine {
                     if let Some(cmd) = rx.blocking_recv() {
                         match cmd {
                             EngineCommand::Analyze(input, res_tx) => {
-                                let morphologies =
+                                let morphologies: Vec<AnalysisRaw> =
                                     nlp.getattr("analyze")?.call1((input,)).unwrap().extract()?;
-                                res_tx.send(morphologies).unwrap();
+
+                                res_tx.send(morphologies.into_iter().map(|v| v.into()).collect()).unwrap();
                             }
                             EngineCommand::Tokenize(input, res_tx) => {
                                 let tokenization = nlp
@@ -423,7 +467,7 @@ impl Engine {
 
     pub async fn morphological_analysis(
         &self,
-        input: impl Into<String>,
+        input: String,
     ) -> anyhow::Result<Analysis> {
         let mut morphologies = self
             .morphological_analysis_batch(vec![input.into()])

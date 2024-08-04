@@ -3,6 +3,7 @@ use kanjidic_types::Character;
 use lazy_static::lazy_static;
 use regex::Regex;
 use wana_kana::to_hiragana::to_hiragana;
+use pyo3::prelude::*;
 
 use crate::nlp::WordUnit;
 
@@ -16,16 +17,16 @@ lazy_static! {
     pub(crate) static ref KANJI_RE: Regex = Regex::new(r"\p{Han}+").unwrap();
 }
 
-pub fn lookup_kanji(by: &char) -> Option<Character> {
+pub fn lookup_kanji(by: char) -> Option<Character> {
     for entry in KANJIDIC.characters.iter() {
-        if entry.literal == *by {
+        if entry.literal == by {
             return Some(entry.clone());
         }
     }
     None
 }
 
-pub fn lookup_kanji_readings(by: &char) -> Option<impl Iterator<Item = String>> {
+pub fn lookup_kanji_readings(by: char) -> Option<impl Iterator<Item = String>> {
     if let Some(kanji) = lookup_kanji(by) {
         use kanjidic_types::Reading::*;
         let mut readings: Vec<String> = kanji
@@ -44,6 +45,8 @@ pub fn lookup_kanji_readings(by: &char) -> Option<impl Iterator<Item = String>> 
     }
 }
 
+// TODO: should this be on morphology instead of analysis?
+#[pymethods]
 impl WordUnit {
     pub fn ruby_furigana(&self) -> Option<String> {
         let mut reading = None;
@@ -68,7 +71,7 @@ impl WordUnit {
             let kanji = stack.chars().next().unwrap();
             kanjiwise_markup.push(kanji);
 
-            if let Some(mut kanji_readings) = lookup_kanji_readings(&kanji) {
+            if let Some(mut kanji_readings) = lookup_kanji_readings(kanji) {
                 if let Some(matched) = kanji_readings.find(|r| stack_r.starts_with(r)) {
                     stack = &stack[kanji.len_utf8()..];
                     stack_r = &stack_r[matched.len()..];
@@ -88,6 +91,7 @@ impl WordUnit {
             markup.push_str(&kanjiwise_markup);
             markup.push_str(stack_r); // remaining kana
         } else {
+            markup.push_str(&self.unit);
             // we failed to align the furigana to individual kanji, so use a simpler style
             markup.push_str("<rp>(</rp><rt>");
             markup.push_str(&reading);
@@ -105,13 +109,13 @@ mod tests {
 
     #[test]
     fn kanji_lookups_work() {
-        lookup_kanji(&'優').unwrap();
+        lookup_kanji('優').unwrap();
     }
 
     #[test]
     fn kanji_reading_lookups_work() {
         assert_eq!(
-            lookup_kanji_readings(&'美').unwrap().next(),
+            lookup_kanji_readings('美').unwrap().next(),
             Some("うつく".into())
         );
     }
