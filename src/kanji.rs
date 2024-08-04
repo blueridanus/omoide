@@ -1,11 +1,11 @@
 use kanjidic_parser::kanjidic::Kanjidic;
 use kanjidic_types::Character;
 use lazy_static::lazy_static;
+use pyo3::prelude::*;
 use regex::Regex;
 use wana_kana::to_hiragana::to_hiragana;
-use pyo3::prelude::*;
 
-use crate::nlp::WordUnit;
+use crate::nlp::Word;
 
 lazy_static! {
     static ref KANJIDIC: Kanjidic = {
@@ -14,7 +14,7 @@ lazy_static! {
         let skipped = std::str::from_utf8(&xml.as_bytes()[start..]).unwrap();
         Kanjidic::try_from(skipped).expect("couldn't parse kanjidic file")
     };
-    pub(crate) static ref KANJI_RE: Regex = Regex::new(r"\p{Han}+").unwrap();
+    pub(crate) static ref KANJI_RE: Regex = Regex::new(r"\p{Han}").unwrap();
 }
 
 pub fn lookup_kanji(by: char) -> Option<Character> {
@@ -26,7 +26,10 @@ pub fn lookup_kanji(by: char) -> Option<Character> {
     None
 }
 
-pub fn lookup_kanji_readings(by: char) -> Option<impl Iterator<Item = String>> {
+pub fn lookup_kanji_readings(
+    by: char,
+    longest_first: bool,
+) -> Option<impl Iterator<Item = String>> {
     if let Some(kanji) = lookup_kanji(by) {
         use kanjidic_types::Reading::*;
         let mut readings: Vec<String> = kanji
@@ -38,16 +41,17 @@ pub fn lookup_kanji_readings(by: char) -> Option<impl Iterator<Item = String>> {
                 _ => None,
             })
             .collect();
-        readings.sort_by(|a, b| b.len().cmp(&a.len()));
+        if longest_first {
+            readings.sort_by(|a, b| b.len().cmp(&a.len()));
+        }
         Some(readings.into_iter().map(|r| to_hiragana(r.as_str())))
     } else {
         None
     }
 }
 
-// TODO: should this be on morphology instead of analysis?
 #[pymethods]
-impl WordUnit {
+impl Word {
     pub fn ruby_furigana(&self) -> Option<String> {
         let mut reading = None;
         if self.has_kanji() {
@@ -55,23 +59,29 @@ impl WordUnit {
                 reading = e.reading_elements().next();
             }
         }
+        // TODO: best effort for words not found in dictionary?
         if reading.is_none() {
             return None;
         }
         let reading = reading.unwrap().text;
         let mut markup = String::new();
-        let mut stack = &self.unit[..];
+        let mut stack = &self.text[..];
         let mut stack_r = &reading[..];
         let mut kanjiwise_markup = String::new();
         while let Some(re_match) = KANJI_RE.find(stack) {
             let skipped_chars = &stack[..re_match.start()].chars().count();
             stack = &stack[re_match.start()..];
-            let (stack_r_skip, _) = stack_r.char_indices().skip(*skipped_chars).next().unwrap();
+            let stack_r_skip = stack_r
+                .char_indices()
+                .map(|(idx, _)| idx)
+                .skip(*skipped_chars)
+                .next()
+                .unwrap_or(stack_r.len());
             stack_r = &stack_r[stack_r_skip..];
             let kanji = stack.chars().next().unwrap();
             kanjiwise_markup.push(kanji);
 
-            if let Some(mut kanji_readings) = lookup_kanji_readings(kanji) {
+            if let Some(mut kanji_readings) = lookup_kanji_readings(kanji, true) {
                 if let Some(matched) = kanji_readings.find(|r| stack_r.starts_with(r)) {
                     stack = &stack[kanji.len_utf8()..];
                     stack_r = &stack_r[matched.len()..];
@@ -91,7 +101,7 @@ impl WordUnit {
             markup.push_str(&kanjiwise_markup);
             markup.push_str(stack_r); // remaining kana
         } else {
-            markup.push_str(&self.unit);
+            markup.push_str(&self.text);
             // we failed to align the furigana to individual kanji, so use a simpler style
             markup.push_str("<rp>(</rp><rt>");
             markup.push_str(&reading);
@@ -115,7 +125,7 @@ mod tests {
     #[test]
     fn kanji_reading_lookups_work() {
         assert_eq!(
-            lookup_kanji_readings('美').unwrap().next(),
+            lookup_kanji_readings('美', true).unwrap().next(),
             Some("うつく".into())
         );
     }

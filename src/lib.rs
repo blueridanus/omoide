@@ -13,6 +13,7 @@ pub mod subs;
 fn omoide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<nlp::WordUnit>()?;
     m.add_class::<nlp::WordRole>()?;
+    m.add_class::<nlp::Word>()?;
     m.add_class::<nlp::Morphology>()?;
     m.add_class::<nlp::Analysis>()?;
     m.add_class::<nlp::DocumentTokenization>()?;

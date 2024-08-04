@@ -3,7 +3,7 @@ use omoide::{
     args::*,
     dedup::DocumentDedupSet,
     document::{Document, DocumentChunk},
-    nlp::{self, WordRole},
+    nlp::{self, Morphology, WordRole},
     srs::{Memo, Rating},
     subs::parse_subtitle_file,
 };
@@ -236,12 +236,13 @@ pub async fn read_furigana(args: FuriganaArgs) -> anyhow::Result<()> {
 
     for analysis in analyzed {
         let mut markup = String::new();
+        let morphology = Morphology::from_analysis(analysis);
 
-        for token in analysis.units {
-            if let Some(ruby) = token.ruby_furigana() {
+        for word in morphology.words() {
+            if let Some(ruby) = word.ruby_furigana() {
                 markup.push_str(&ruby);
             } else {
-                markup.push_str(&token.unit);
+                markup.push_str(&word.text);
             }
         }
 

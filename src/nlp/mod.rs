@@ -4,10 +4,11 @@ use std::iter;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
 
+use crate::dict::INDEX_BY_READING;
 use crate::kanji::KANJI_RE;
 
 // TODO: parameterize by categories. tense, politeness, polarity blah blah
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[pyclass]
 pub enum WordRole {
     Verb,
@@ -67,6 +68,7 @@ impl WordRole {
 }
 
 #[derive(Debug, Clone)]
+#[pyclass]
 pub struct Word {
     pub text: String,
     pub role: WordRole,
@@ -79,9 +81,44 @@ impl std::fmt::Display for Word {
     }
 }
 
+#[pymethods]
 impl Word {
-    pub fn lookup(&self, lookup_closed: bool) -> Option<(&jmdict::Entry, &str)> {
-        self.upos_subunits[0].lookup(lookup_closed)
+    pub fn has_kanji(&self) -> bool {
+        KANJI_RE.is_match(self.text.as_str())
+    }
+
+    fn __str__(&self) -> &str {
+        &self.text
+    }
+}
+
+impl Word {
+    pub fn lookup(&self, lookup_closed: bool) -> Option<(jmdict::Entry, String)> {
+        for n in (1..=self.upos_subunits.len()).rev() {
+            let merged_reading = self
+                .upos_subunits
+                .iter()
+                .take(n)
+                .map(|t| t.lemma.as_str())
+                .collect::<String>();
+            if let Some(entries) = INDEX_BY_READING.get(&merged_reading) {
+                let entry = if lookup_closed {
+                    Some(&entries[0])
+                } else {
+                    entries.iter().find(|entry| {
+                        entry
+                            .senses()
+                            .any(|sense| sense.can_be_candidate_for(self.upos_subunits[0].class))
+                    })
+                };
+
+                if let Some(entry) = entry {
+                    return Some((entry.clone(), merged_reading));
+                }
+            }
+        }
+
+        return None;
     }
 }
 
@@ -95,7 +132,9 @@ pub struct Morphology {
     units: Vec<(Word, Dependency)>,
 }
 
+#[pymethods]
 impl Morphology {
+    #[new]
     pub fn from_analysis(analysis: Analysis) -> Self {
         struct MergedUnit {
             role: WordRole,
@@ -108,7 +147,9 @@ impl Morphology {
         let mut mapping: Vec<usize> = vec![];
 
         for (i, (_unit, _dep)) in iter::zip(analysis.units, analysis.deps).enumerate() {
+            let role = WordRole::from_upos(&_unit);
             if let Some(last) = merged.last_mut() {
+                // merge inflections into the word
                 if last.i == _dep
                     && !matches!(_unit.lemma.as_str(), "です" | "だ")
                     && matches!(
@@ -120,10 +161,33 @@ impl Morphology {
                     mapping.push(merged.len() - 1);
                     continue;
                 }
+
+                // try to merge nouns if compound present in dictionary
+                if last.role == role && matches!(role, WordRole::Noun) {
+                    let merged_reading = last
+                        .subunits
+                        .iter()
+                        .map(|t| t.unit.as_str())
+                        .chain([_unit.lemma.as_str()])
+                        .collect::<String>();
+                    if let Some(entries) = INDEX_BY_READING.get(&merged_reading) {
+                        let entry = entries.iter().find(|entry| {
+                            entry
+                                .senses()
+                                .any(|sense| sense.can_be_candidate_for(_unit.class))
+                        });
+
+                        if entry.is_some() {
+                            last.subunits.push(_unit);
+                            mapping.push(merged.len() - 1);
+                            continue;
+                        }
+                    }
+                }
             }
             mapping.push(merged.len().saturating_sub(1));
             merged.push(MergedUnit {
-                role: WordRole::from_upos(&_unit),
+                role,
                 subunits: vec![_unit],
                 i,
                 dep_i: _dep,
@@ -154,18 +218,6 @@ impl Morphology {
         }
     }
 
-    pub fn word(&self, index: usize) -> &Word {
-        &self.units[index].0
-    }
-
-    pub fn get_word(&self, index: usize) -> Option<&Word> {
-        self.units.get(index).map(|v| &v.0)
-    }
-
-    pub fn words(&self) -> impl Iterator<Item = &Word> {
-        self.units.iter().map(|v| &v.0)
-    }
-
     pub fn dependency(&self, index: usize) -> Dependency {
         self.units[index].1
     }
@@ -174,8 +226,31 @@ impl Morphology {
         self.units.get(index).map(|v| v.1)
     }
 
+    pub fn __getitem__(&self, index: usize) -> Option<Word> {
+        self.units.get(index).map(|v| v.0.clone())
+    }
+
+    #[pyo3(name = "words")]
+    fn words_py(&self) -> Vec<Word> {
+        self.units.iter().cloned().map(|v| v.0).collect()
+    }
+}
+
+impl Morphology {
+    pub fn words(&self) -> impl Iterator<Item = &Word> {
+        self.units.iter().map(|v| &v.0)
+    }
+
     pub fn dependencies<'a>(&'a self) -> impl Iterator<Item = Dependency> + 'a {
         self.units.iter().map(|v| v.1)
+    }
+
+    pub fn word(&self, index: usize) -> &Word {
+        &self.units[index].0
+    }
+
+    pub fn get_word(&self, index: usize) -> Option<&Word> {
+        self.units.get(index).map(|v| &v.0)
     }
 }
 
@@ -363,7 +438,7 @@ pub struct Analysis {
 
 impl From<AnalysisRaw> for Analysis {
     fn from(value: AnalysisRaw) -> Self {
-        Self { 
+        Self {
             units: value.units,
             deps: value.deps,
         }
@@ -374,7 +449,7 @@ impl From<AnalysisRaw> for Analysis {
 impl Analysis {
     #[new]
     fn py_new(units: Vec<WordUnit>, deps: Vec<usize>) -> Self {
-        Self {units, deps,}
+        Self { units, deps }
     }
 }
 
@@ -442,7 +517,9 @@ impl Engine {
                                 let morphologies: Vec<AnalysisRaw> =
                                     nlp.getattr("analyze")?.call1((input,)).unwrap().extract()?;
 
-                                res_tx.send(morphologies.into_iter().map(|v| v.into()).collect()).unwrap();
+                                res_tx
+                                    .send(morphologies.into_iter().map(|v| v.into()).collect())
+                                    .unwrap();
                             }
                             EngineCommand::Tokenize(input, res_tx) => {
                                 let tokenization = nlp
@@ -465,10 +542,7 @@ impl Engine {
         Self { _handle, tx }
     }
 
-    pub async fn morphological_analysis(
-        &self,
-        input: String,
-    ) -> anyhow::Result<Analysis> {
+    pub async fn morphological_analysis(&self, input: String) -> anyhow::Result<Analysis> {
         let mut morphologies = self
             .morphological_analysis_batch(vec![input.into()])
             .await?;
@@ -672,3 +746,7 @@ impl JMDictSenseExt for jmdict::Sense {
 //    treatment of compounds again, 鑑識課 getting split as two words 鑑識 課
 // => suggested heuristic: merge open forms belonging to the same class if merged entry
 //    is found in dictionary
+//
+// #5. あと、いつでもトイレに行けます
+//    行けます gets lemmatized to 行ける, which is still not dictionary form - that would be 行く
+// => might need to implement an algorithm to undo inflection instead of relying on spacy lemmatization
