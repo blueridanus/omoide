@@ -52,6 +52,14 @@ impl WordRole {
             }
         }
 
+        // onomatopoeia or tokenization errors
+        if matches!(
+            unit.lemma.as_str(),
+            "お" | "あ" | "ん" | "あっ" | "はっ" | "ううん" | "うん" | "うう" | "えっ" | "う" | "い"
+        ) {
+            return Self::Other;
+        }
+
         match unit.class {
             UposTag::Adjective => Self::Adjective,
             UposTag::Adposition => Self::Particle,
@@ -88,7 +96,7 @@ impl WordRole {
             WordRole::Copula => false,
             WordRole::Expression => true,
             WordRole::Other => false,
-        }        
+        }
     }
 }
 
@@ -96,6 +104,7 @@ impl WordRole {
 #[pyclass]
 pub struct Word {
     pub text: String,
+    pub lemma_units: Vec<WordUnit>,
     pub role: WordRole,
     pub upos_subunits: Vec<WordUnit>, // TODO: handle inner dependencies correctly
 }
@@ -108,6 +117,10 @@ impl std::fmt::Display for Word {
 
 #[pymethods]
 impl Word {
+    pub fn lemma(&self) -> String {
+        self.lemma_units.iter().map(|u| u.lemma.as_str()).collect()
+    }
+
     pub fn has_kanji(&self) -> bool {
         KANJI_RE.is_match(self.text.as_str())
     }
@@ -119,26 +132,23 @@ impl Word {
 
 impl Word {
     pub fn lookup(&self, lookup_closed: bool) -> Option<(jmdict::Entry, String)> {
-        for n in (1..=self.upos_subunits.len()).rev() {
+        for n in (1..=self.lemma_units.len()).rev() {
             let merged_reading = self
-                .upos_subunits
+                .lemma_units
                 .iter()
                 .take(n)
                 .map(|t| t.lemma.as_str())
                 .collect::<String>();
             if let Some(entries) = INDEX_BY_READING.get(&merged_reading) {
-
                 if !lookup_closed && !self.role.is_open() {
                     return None;
                 }
 
-                let entry = entries
-                    .iter()
-                    .find(|entry| {
-                        entry
-                            .senses()
-                            .any(|sense| sense.can_be_candidate_for(self.upos_subunits[0].class))
-                    });
+                let entry = entries.iter().find(|entry| {
+                    entry
+                        .senses()
+                        .any(|sense| sense.can_be_candidate_for(self.lemma_units[0].class))
+                });
 
                 if let Some(entry) = entry {
                     return Some((entry.clone(), merged_reading));
@@ -167,6 +177,7 @@ impl Morphology {
     #[new]
     pub fn from_analysis(analysis: Analysis) -> Self {
         struct MergedUnit {
+            lemma_units: Vec<WordUnit>,
             role: WordRole,
             subunits: Vec<WordUnit>,
             i: usize,
@@ -180,13 +191,24 @@ impl Morphology {
             let role = WordRole::from_upos(&_unit);
             if let Some(last) = merged.last_mut() {
                 // merge inflections into the word
-                if last.i == _dep
-                    && !matches!(_unit.lemma.as_str(), "です" | "だ")
-                    && matches!(
-                        _unit.class,
-                        UposTag::Auxiliary | UposTag::SubordinatingConjunction
-                    )
-                {
+                let mut is_inflection = false;
+
+                if matches!(
+                    _unit.class,
+                    UposTag::Auxiliary | UposTag::SubordinatingConjunction
+                ) {
+                    is_inflection = true;
+                }
+
+                if matches!(_unit.lemma.as_str(), "た") && matches!(_unit.class, UposTag::Verb) {
+                    is_inflection = true;
+                }
+
+                if matches!(_unit.lemma.as_str(), "です" | "だ") {
+                    is_inflection = false;
+                }
+
+                if is_inflection {
                     last.subunits.push(_unit);
                     mapping.push(merged.len() - 1);
                     continue;
@@ -208,6 +230,7 @@ impl Morphology {
                         });
 
                         if entry.is_some() {
+                            last.lemma_units.push(_unit.clone());
                             last.subunits.push(_unit);
                             mapping.push(merged.len() - 1);
                             continue;
@@ -217,6 +240,7 @@ impl Morphology {
             }
             mapping.push(merged.len().saturating_sub(1));
             merged.push(MergedUnit {
+                lemma_units: vec![_unit.clone()],
                 role,
                 subunits: vec![_unit],
                 i,
@@ -231,11 +255,13 @@ impl Morphology {
                     |MergedUnit {
                          role,
                          subunits,
+                         lemma_units,
                          i,
                          dep_i,
                      }| {
                         (
                             Word {
+                                lemma_units,
                                 role,
                                 text: subunits.iter().map(|u| u.unit.as_str()).collect(),
                                 upos_subunits: subunits.into_iter().collect(),

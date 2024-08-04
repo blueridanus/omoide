@@ -154,10 +154,11 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
             .into_docs();
 
         for doc in analyzed {
-            for analyzed_sentence in doc.analysis().unwrap() {
-                for token in &analyzed_sentence.units {
-                    if token.lookup(false).is_some() {
-                        *occurrences.entry(token.lemma.clone()).or_insert(0) += 1;
+            for analysis in doc.analysis().unwrap() {
+                let morphology = nlp::Morphology::from_analysis(analysis.clone());
+                for word in morphology.words() {
+                    if word.lookup(false).is_some() {
+                        *occurrences.entry(word.lemma().clone()).or_insert(0) += 1;
                     }
                 }
             }
@@ -166,8 +167,8 @@ pub async fn stats(args: &StatsArgs) -> anyhow::Result<()> {
         let mut occurrences: Vec<(String, usize)> = occurrences.into_iter().collect();
         occurrences.sort_by(|a, b| b.1.cmp(&a.1));
 
-        println!("Top 25 words:");
-        for (word, count) in occurrences.iter().take(25) {
+        println!("Top 250 words:");
+        for (word, count) in occurrences.iter().take(250) {
             println!("  {word}: {count}");
         }
     }
@@ -194,11 +195,13 @@ pub async fn examples(args: ExampleArgs) -> anyhow::Result<()> {
 
     for doc in analyzed {
         let mut found_in_file = false;
+
         for (analyzed_sentence, chunk) in iter::zip(doc.analysis().unwrap(), doc.chunks()) {
-            if analyzed_sentence
-                .units
-                .iter()
-                .find(|word| word.lemma == args.word)
+            let morphology = nlp::Morphology::from_analysis(analyzed_sentence.clone());
+
+            if morphology
+                .words()
+                .find(|word| word.lemma() == args.word)
                 .is_some()
             {
                 if !found_in_file {
