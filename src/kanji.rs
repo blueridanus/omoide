@@ -104,7 +104,7 @@ impl Word {
         markup.push_str("<ruby>");
         if !kanjiwise_markup.is_empty() {
             markup.push_str(&kanjiwise_markup);
-            markup.push_str(stack_r); // remaining kana
+            markup.push_str(stack); // remaining kana
         } else {
             markup.push_str(&self.text);
             // we failed to align the furigana to individual kanji, so use a simpler style
